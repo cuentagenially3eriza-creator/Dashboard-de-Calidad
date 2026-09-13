@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildFeedbackVolumeRecords, gasHandlers } from "../server/gasHandlers.js";
+import { applyAutomaticFeedbackSla, buildAutomaticFeedbackRecord, buildFeedbackVolumeRecords, gasHandlers } from "../server/gasHandlers.js";
 
 test("el volumen de feedbacks queda aislado del flujo operativo", () => {
   const source = {
@@ -86,7 +86,7 @@ test("el Dashboard no repite horas usadas por lotes anteriores", () => {
   assert.equal(new Set(records.map(record => record.feedbackDate)).size,records.length);
 });
 
-test("solo Administrador puede ejecutar volumen y Supervisor no puede modificar feedbacks", async () => {
+test("solo Administrador puede ejecutar volumen y Supervisor recibe errores controlados", async () => {
   await assert.rejects(
     gasHandlers.createFeedbackVolume({
       currentUser:{usuario:"supervisor.demo",rol:"supervisor"},
@@ -103,6 +103,46 @@ test("solo Administrador puede ejecutar volumen y Supervisor no puede modificar 
       id:1,
       action:"close_feedback"
     }),
-    /solo lectura/
+    /No se encontro/
   );
+});
+
+test("el SLA cierra feedbacks automaticos pendientes al cumplir 24 horas", () => {
+  const createdAt = "2026-09-10T15:00:00.000Z";
+  const result = applyAutomaticFeedbackSla([
+    {id:1,automaticFromEvaluation:true,managementStatus:"pending",status:"pending",estado:"pending",createdAt},
+    {id:2,automaticFromEvaluation:true,managementStatus:"realized",status:"realized",createdAt},
+    {id:3,status:"pending",estado:"pending",createdAt}
+  ], new Date("2026-09-11T15:00:01.000Z").getTime());
+
+  assert.equal(result.changed, true);
+  assert.equal(result.records[0].managementStatus, "closed_unmanaged");
+  assert.equal(result.records[0].closedWithoutManagementAt, "2026-09-11T15:00:00.000Z");
+  assert.equal(result.records[1].managementStatus, "realized");
+  assert.equal(result.records[2].status, "pending");
+});
+
+test("el SLA conserva pendientes automaticos antes de 24 horas", () => {
+  const record = {id:1,automaticFromEvaluation:true,managementStatus:"pending",createdAt:"2026-09-10T15:00:00.000Z"};
+  const result = applyAutomaticFeedbackSla([record], new Date("2026-09-11T14:59:59.000Z").getTime());
+  assert.equal(result.changed, false);
+  assert.equal(result.records[0], record);
+});
+
+test("editar una evaluacion actualiza el mismo feedback sin reiniciar su gestion", () => {
+  const existing = {id:77,automaticFromEvaluation:true,sourceEvaluationId:"eval-1",managementStatus:"realized",status:"realized",estado:"realized",createdAt:"2026-09-10T10:00:00.000Z",managedAt:"2026-09-10T11:00:00.000Z"};
+  const record = buildAutomaticFeedbackRecord({
+    evaluation:{id:"eval-1",asesorNombre:"Asesor Uno",auditorId:"supervisor.demo",auditorNombre:"Supervisor Demo",resultadoGeneral:"95%",fechaEvaluacion:"2026-09-10T09:00:00.000Z"},
+    currentUser:{usuario:"supervisor.demo",nombre:"Supervisor Demo"},
+    role:"supervisor",
+    clientId:"entel_b2b",
+    evaluationId:"eval-1",
+    existing,
+    now:"2026-09-10T12:00:00.000Z",
+    id:999
+  });
+  assert.equal(record.id,77);
+  assert.equal(record.managementStatus,"realized");
+  assert.equal(record.managedAt,existing.managedAt);
+  assert.equal(record.resultadoGeneral,"95%");
 });

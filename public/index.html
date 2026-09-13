@@ -2418,8 +2418,8 @@ const I = (n, s, c) => {
   }
   return sv(paths, s, c);
 };
-const ROL_LABEL = {admin:"Administrador", analista:"Analista", formador:"Formador", supervisor:"Supervisor", referente_experto:"Referente Experto", asesor:"Asesor"};
-const ROL_COLOR = {admin:THEME.accent, analista:THEME.primary, formador:"#F59E0B", supervisor:THEME.violet, referente_experto:"#22D3EE", asesor:"#19C37D"};
+const ROL_LABEL = {admin:"Administrador", analista:"Analista", formador:"Formador", supervisor:"Supervisor", coordinador:"Coordinador", referente_experto:"Referente Experto", asesor:"Asesor"};
+const ROL_COLOR = {admin:THEME.accent, analista:THEME.primary, formador:"#F59E0B", supervisor:THEME.violet, coordinador:"#38BDF8", referente_experto:"#22D3EE", asesor:"#19C37D"};
 const FEEDBACK_CATEGORY_THEME = {
   "Feedback": { color: THEME.primary, bg: "rgba(29,43,255,0.12)", border: "rgba(29,43,255,0.32)" },
   "Refuerzo": { color: "#F59E0B", bg: "rgba(245,158,11,0.12)", border: "rgba(245,158,11,0.30)" },
@@ -2448,6 +2448,8 @@ const FEEDBACK_STATUS_LABEL = {
   advisor_accepted: "Validado por asesor",
   advisor_rejected: "No aceptado por asesor",
   in_follow_up: "En seguimiento",
+  realized: "Realizado",
+  closed_unmanaged: "Cerrado sin gestion",
   closed: "Cerrado",
   unassigned: "Sin perfil asignado",
   response_submitted: "En seguimiento"
@@ -2463,6 +2465,8 @@ function getFeedbackStatusTheme(status){
     advisor_accepted: {label:"Validado por asesor",color:"#19C37D",bg:"rgba(25,195,125,0.12)",border:"rgba(25,195,125,0.30)"},
     advisor_rejected: {label:"No aceptado por asesor",color:"#FF6B7A",bg:"rgba(255,77,90,0.12)",border:"rgba(255,77,90,0.30)"},
     in_follow_up: {label:"En seguimiento",color:"#F59E0B",bg:"rgba(245,158,11,0.12)",border:"rgba(245,158,11,0.30)"},
+    realized: {label:"Realizado",color:"#19C37D",bg:"rgba(25,195,125,0.12)",border:"rgba(25,195,125,0.30)"},
+    closed_unmanaged: {label:"Cerrado sin gestion",color:"#FF6B7A",bg:"rgba(255,107,122,0.12)",border:"rgba(255,107,122,0.30)"},
     closed: {label:"Cerrado",color:"#A6A0B8",bg:"rgba(166,160,184,0.12)",border:"rgba(166,160,184,0.26)"},
     unassigned: {label:"Sin perfil asignado",color:THEME.accent,bg:"rgba(230,0,168,0.12)",border:"rgba(230,0,168,0.30)"},
     response_submitted: {label:"En seguimiento",color:"#F59E0B",bg:"rgba(245,158,11,0.12)",border:"rgba(245,158,11,0.30)"}
@@ -2471,15 +2475,15 @@ function getFeedbackStatusTheme(status){
 }
 
 function canCreateFeedback(user){
-  return ["admin","analista","formador"].includes(String(user?.rol||"").trim().toLowerCase());
+  return ["admin","analista","formador","supervisor","coordinador"].includes(String(user?.rol||"").trim().toLowerCase());
 }
 
 function canFillEvaluation(user){
-  return ["admin","analista","formador"].includes(String(user?.rol||"").trim().toLowerCase());
+  return ["admin","analista","formador","supervisor","coordinador"].includes(String(user?.rol||"").trim().toLowerCase());
 }
 
 function canFillOjtEvaluation(user){
-  return ["admin","analista","formador"].includes(String(user?.rol||"").trim().toLowerCase());
+  return ["admin","analista","formador","supervisor","coordinador"].includes(String(user?.rol||"").trim().toLowerCase());
 }
 
 function canManageUsers(user){
@@ -2491,7 +2495,7 @@ function hasStaffingAccess(user){
 }
 
 function canViewTeamFeedback(user){
-  return ["admin","analista","formador","supervisor"].includes(String(user?.rol||"").trim().toLowerCase());
+  return ["admin","analista","formador","supervisor","coordinador"].includes(String(user?.rol||"").trim().toLowerCase());
 }
 
 function canImportData(user){
@@ -2510,7 +2514,14 @@ function canViewDashboards(user){
 }
 
 function canViewImprovementDashboard(user){
-  return ["admin","analista","supervisor","formador"].includes(String(user?.rol||"").trim().toLowerCase());
+  return ["admin","analista","supervisor","coordinador","formador"].includes(String(user?.rol||"").trim().toLowerCase());
+}
+
+function isRecordOwnedByCurrentUser(record, user){
+  const userKey = normalizeLoginKey(user?.usuario);
+  const userName = normalizeName(user?.nombre);
+  return [record?.authorUser,record?.auditorId,record?.createdBy].some(value=>userKey && normalizeLoginKey(value)===userKey) ||
+    [record?.authorName,record?.auditorNombre].some(value=>userName && normalizeName(value)===userName);
 }
 
 function canManageCommunications(user){
@@ -3420,7 +3431,7 @@ function UserManager({users,onAddUser,onDeleteUser,onUpdateUserStatus,onResetPas
       ),
       h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:20}},
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Contrasena inicial"),h("input",{style:INP,value:DEFAULT_USER_PASSWORD,disabled:true})),
-        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Rol"),h("select",{style:SEL,value:form.rol,onChange:ev => setForm({...form,rol:ev.target.value,assessorName:ev.target.value === "asesor" ? form.assessorName : ""})},h("option",{value:"analista"},"Analista"),h("option",{value:"formador"},"Formador"),h("option",{value:"supervisor"},"Supervisor"),h("option",{value:"referente_experto"},"Referente Experto"),h("option",{value:"asesor"},"Asesor"),h("option",{value:"admin"},"Administrador")))
+        h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Rol"),h("select",{style:SEL,value:form.rol,onChange:ev => setForm({...form,rol:ev.target.value,assessorName:ev.target.value === "asesor" ? form.assessorName : ""})},h("option",{value:"analista"},"Analista"),h("option",{value:"formador"},"Formador"),h("option",{value:"supervisor"},"Supervisor"),h("option",{value:"coordinador"},"Coordinador"),h("option",{value:"referente_experto"},"Referente Experto"),h("option",{value:"asesor"},"Asesor"),h("option",{value:"admin"},"Administrador")))
       ),
       h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:20}},
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Correo"),h("input",{style:INP,placeholder:"correo@empresa.com",value:form.correo,onChange:ev => setForm({...form,correo:ev.target.value})})),
@@ -5224,7 +5235,9 @@ function EvaluationModal({isOpen,onClose,feedbackRecord,evaluationRecord,current
   const [commentEditor,setCommentEditor] = useState({open:false,index:-1,text:"",title:""});
   const currentRole = String(currentUser?.rol || "").trim().toLowerCase();
   const initialOjtMode = isOjtEvaluationRecord(evaluationRecord) || isOjtEvaluationRecord(feedbackRecord);
-  const readOnly = !(canFillEvaluation(currentUser) || (currentRole === "formador" && initialOjtMode)) || currentEvaluation?.estadoEvaluacion === "closed";
+  const evaluationOwnedByCurrentUser = !currentEvaluation || normalizeLoginKey(currentEvaluation?.auditorId || currentEvaluation?.auditorUsuario) === normalizeLoginKey(currentUser?.usuario);
+  const restrictedToOwnEvaluation = ["supervisor","coordinador"].includes(currentRole) && !evaluationOwnedByCurrentUser;
+  const readOnly = !(canFillEvaluation(currentUser) || (currentRole === "formador" && initialOjtMode)) || restrictedToOwnEvaluation || currentEvaluation?.estadoEvaluacion === "closed";
   const clientId = normalizeClientId(evaluationRecord?.clientId || evaluationRecord?.platformId || feedbackRecord?.clientId || feedbackRecord?.platformId || platform?.id || DEFAULT_PLATFORM_ID);
   const clientName = getPlatformDisplayName(clientId);
 
@@ -5437,7 +5450,7 @@ function FeedbackPreviewModal({record,evaluation,currentUser,onClose,onMarkViewe
   );
 }
 
-function FeedbackModal({isOpen,onClose,onSave,currentUser,advisorOptions,advisorProfiles,users,defaultAssessor,editingRecord,notify}){
+function FeedbackModal({isOpen,onClose,onSave,currentUser,advisorOptions,advisorProfiles,users,defaultAssessor,editingRecord,disableScheduling,notify}){
   const initialSupervisor = ((advisorProfiles || []).find(profile => profile.advisorName === normalizeName(defaultAssessor)) || {})?.supervisor || "";
   const [form,setForm] = useState({assessor:defaultAssessor || "",supervisorName:initialSupervisor,supervisorUser:"",tipoGestion:String(currentUser?.rol||"").trim().toLowerCase()==="formador" ? "Refuerzo" : "Feedback",clasificacionFeedback:"",tipoRefuerzo:"",campaign:"",meetingType:"Presencial",feedbackDate:toDatetimeLocalValue(),resultadoGeneral:"",feedbackText:"",observacionGeneral:"",compromisoMejora:"",scheduledMeetingAt:"",notificationEmail:"",meetingLink:""});
   const [audioFile,setAudioFile] = useState(null);
@@ -5492,7 +5505,7 @@ function FeedbackModal({isOpen,onClose,onSave,currentUser,advisorOptions,advisor
     if (form.tipoGestion === "Refuerzo" && !form.tipoRefuerzo.trim()) { notify("e","El tipo de refuerzo es obligatorio."); return; }
     if (!selectedAdvisorProfile?.usuarioAsignado) { notify("e","Ese asesor no tiene perfil de usuario asignado."); return; }
     if (!form.feedbackText.trim() && !form.observacionGeneral.trim() && !audioFile && !docFile) { notify("e","Registra al menos una observacion o adjunto."); return; }
-    if ((form.scheduledMeetingAt && !form.notificationEmail.trim()) || (!form.scheduledMeetingAt && form.notificationEmail.trim())) { notify("e","Para agendar la cita online completa tanto la fecha y hora como el correo de notificacion."); return; }
+    if (!disableScheduling && ((form.scheduledMeetingAt && !form.notificationEmail.trim()) || (!form.scheduledMeetingAt && form.notificationEmail.trim()))) { notify("e","Para agendar la cita online completa tanto la fecha y hora como el correo de notificacion."); return; }
     setSaving(true);
     try{
       const attachments = (await Promise.all([prepareAttachment(audioFile,"audio"),prepareAttachment(docFile,"document")])).filter(Boolean);
@@ -5516,9 +5529,9 @@ function FeedbackModal({isOpen,onClose,onSave,currentUser,advisorOptions,advisor
         feedbackText: form.feedbackText.trim(),
         observacionGeneral: form.observacionGeneral.trim(),
         compromisoMejora: form.compromisoMejora.trim(),
-        scheduledMeetingAt: form.scheduledMeetingAt ? new Date(form.scheduledMeetingAt).toISOString() : "",
-        notificationEmail: form.notificationEmail.trim(),
-        meetingLink: form.meetingLink.trim(),
+        scheduledMeetingAt: disableScheduling ? "" : (form.scheduledMeetingAt ? new Date(form.scheduledMeetingAt).toISOString() : ""),
+        notificationEmail: disableScheduling ? "" : form.notificationEmail.trim(),
+        meetingLink: disableScheduling ? "" : form.meetingLink.trim(),
         feedbackDate: new Date(form.feedbackDate).toISOString(),
         attachments,
         currentUser
@@ -5565,7 +5578,7 @@ function FeedbackModal({isOpen,onClose,onSave,currentUser,advisorOptions,advisor
       h("div",{style:{marginBottom:16}},h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Observacion general"),h("textarea",{style:{...INP,minHeight:90,resize:"vertical"},value:form.observacionGeneral,onChange:ev=>setForm({...form,observacionGeneral:ev.target.value}),placeholder:"Resumen ejecutivo del caso, hallazgos y contexto."})),
       h("div",{style:{marginBottom:16}},h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Detalle del feedback"),h("textarea",{style:{...INP,minHeight:120,resize:"vertical"},value:form.feedbackText,onChange:ev=>setForm({...form,feedbackText:ev.target.value}),placeholder:"Describe observaciones, acuerdos y expectativas de mejora."})),
       h("div",{style:{marginBottom:20}},h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,fontWeight:700}},"Compromiso o accion de mejora"),h("textarea",{style:{...INP,minHeight:90,resize:"vertical"},value:form.compromisoMejora,onChange:ev=>setForm({...form,compromisoMejora:ev.target.value}),placeholder:"Compromisos concretos, responsable y proximo seguimiento."})),
-      h("div",{style:{...CARD,marginBottom:20,padding:20}},
+      !disableScheduling && h("div",{style:{...CARD,marginBottom:20,padding:20}},
         h("div",{style:{fontSize:12,fontWeight:800,color:"#fff",textTransform:"uppercase",letterSpacing:"0.14em",fontFamily:THEME.displayFont,marginBottom:14}},"Agenda online del feedback"),
         h("div",{style:{fontSize:12,color:"#8b92a5",lineHeight:1.7,marginBottom:16}},"Si deseas programar la cita online, registra la fecha y hora de la reunion y el correo al que se enviara la notificacion automatica con el motivo del feedback."),
         h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:16,marginBottom:16}},
@@ -5627,20 +5640,22 @@ function FeedbackVolumeModal({isOpen,onClose,onExecute,users,notify}){
   );
 }
 
-function FeedbackCenter({feedbackRecords,statisticalRecords,evaluationRecords,onOpenFeedback,onCreateVolume,onEditFeedback,onDeleteFeedback,onOpenEvaluation,onOpenPreview,advisorOptions,currentUser,notify,staffing,users}){
+function FeedbackCenter({feedbackRecords,statisticalRecords,evaluationRecords,onCreateVolume,onEditFeedback,onDeleteFeedback,onMarkFeedbackRealized,onOpenEvaluation,onOpenPreview,advisorOptions,currentUser,notify,staffing,users}){
   const [filters,setFilters] = useState({dateFrom:"",dateTo:"",advisor:"all",author:"all",management:"all",classification:"all",status:"all",search:""});
   const [volumeModalOpen,setVolumeModalOpen] = useState(false);
   const role = String(currentUser?.rol||"").trim().toLowerCase();
 
   const visibleRecords = useMemo(() => {
-    if (role === "supervisor") {
-      return (feedbackRecords || []).filter(record => isFeedbackCreatedByQualityAnalyst(record, users));
-    }
     const operational = feedbackRecords || [];
-    return ["admin","analista"].includes(role) ? [...operational, ...(statisticalRecords || [])] : operational;
-  }, [feedbackRecords,statisticalRecords,role,users]);
+    const roleVisible = ["admin","analista"].includes(role) ? [...operational, ...(statisticalRecords || [])] : operational;
+    return roleVisible.filter(record => !isRecordForCeasedAdvisor(record, staffing));
+  }, [feedbackRecords,statisticalRecords,role,staffing]);
 
-  const authors = useMemo(() => [...new Set(visibleRecords.map(item => getImprovementQualityAnalystName(item)).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),"es")), [visibleRecords]);
+  const authors = useMemo(() => {
+    const qualityUsers = (users || []).filter(user => ["analista","monitor"].includes(String(user?.rol || user?.role || "").trim().toLowerCase()) && !isInactiveProfileStatus(user?.estado));
+    return [...new Set(visibleRecords.map(item => getImprovementQualityAnalystName(item)).filter(name => name && qualityUsers.some(user => normalizeName(user?.nombre) === normalizeName(name) || normalizeLoginKey(user?.usuario) === normalizeLoginKey(name))))]
+      .sort((a,b)=>String(a).localeCompare(String(b),"es"));
+  }, [visibleRecords,users]);
 
   const filteredRecords = useMemo(() => visibleRecords.filter(record => {
     const management = record.tipoGestion || record.feedbackCategory || "";
@@ -5673,9 +5688,11 @@ function FeedbackCenter({feedbackRecords,statisticalRecords,evaluationRecords,on
       const validationStatus = String(record?.advisorValidationStatus || "").trim();
       return ["rejected","advisor_rejected"].includes(status) || validationStatus === "rejected";
     };
-    const closed = allRecords.filter(record => String(record?.estado || record?.status || "") === "closed").length;
-    const pendingSupervisor = allRecords.filter(record => isAdvisorValidated(record) && String(record?.estado || record?.status || "") !== "closed").length;
-    const pendingAdvisor = allRecords.filter(record => !isAdvisorValidated(record)).length;
+    const closed = allRecords.filter(record => ["closed","realized","closed_unmanaged"].includes(String(record?.managementStatus || record?.estado || record?.status || ""))).length;
+    const pendingSupervisor = allRecords.filter(record => !record?.automaticFromEvaluation && isAdvisorValidated(record) && String(record?.estado || record?.status || "") !== "closed").length;
+    const pendingAdvisor = allRecords.filter(record => record?.automaticFromEvaluation
+      ? String(record?.managementStatus || "pending") === "pending"
+      : !isAdvisorValidated(record)).length;
     const accepted = allRecords.filter(isAdvisorAccepted).length;
     const rejected = allRecords.filter(isAdvisorRejected).length;
     const inFollowUp = allRecords.filter(record => ["in_follow_up","response_submitted"].includes(String(record?.estado || record?.status || "").trim())).length;
@@ -5732,12 +5749,11 @@ function FeedbackCenter({feedbackRecords,statisticalRecords,evaluationRecords,on
   return h(Fragment,null,
     h("div",{style:{marginBottom:30,display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:20}},
       h("div",null,
-        h("h1",{style:{fontSize:24,fontWeight:800,color:"#fff",marginBottom:6}},role === "supervisor" ? "Feedbacks" : "Gestion de feedbacks"),
-        h("span",{style:{fontSize:12,color:"#8b92a5"}},role === "supervisor" ? "Feedbacks registrados por Monitor y Analista en modo de solo lectura." : "Tabla dinamica con filtros por asesor, analista, gestion, clasificacion y estado")
+        h("h1",{style:{fontSize:24,fontWeight:800,color:"#fff",marginBottom:6}},"Gestion de feedbacks"),
+        h("span",{style:{fontSize:12,color:"#8b92a5"}},"Feedbacks creados automaticamente desde las evaluaciones registradas")
       ),
       h("div",{style:{display:"flex",gap:10,flexWrap:"wrap",justifyContent:"flex-end"}},
-        role === "admin" && h("button",{style:BTN("out"),onClick:()=>setVolumeModalOpen(true)},I("bar",14,THEME.primary),"DASHBOARD"),
-        canCreateFeedback(currentUser) && h("button",{style:BTN("pink"),onClick:()=>onOpenFeedback("")},I("plus",14,"#fff"),"CREAR FEEDBACK")
+        role === "admin" && h("button",{style:BTN("out"),onClick:()=>setVolumeModalOpen(true)},I("bar",14,THEME.primary),"DASHBOARD")
       )
     ),
     h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:14,marginBottom:24}},
@@ -5757,7 +5773,7 @@ function FeedbackCenter({feedbackRecords,statisticalRecords,evaluationRecords,on
       h(AnalyticsChart,{title:"Estados del feedback",subtitle:"Distribucion de los feedbacks visibles con los filtros activos.",config:statusChartConfig,height:250,emptyMessage:"No hay estados para mostrar."}),
       h(AnalyticsChart,{title:"Tipo de gestion",subtitle:"Volumen por categoria visible con los filtros activos.",config:managementChartConfig,height:250,emptyMessage:"No hay tipos de gestion para mostrar."})
     ),
-    role !== "supervisor" && h("div",{style:{...CARD,marginBottom:24}},
+    h("div",{style:{...CARD,marginBottom:24}},
       h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:14}},
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Fecha desde"),h("input",{type:"date",style:INP,value:filters.dateFrom,onChange:ev=>setFilters({...filters,dateFrom:ev.target.value})})),
         h("div",null,h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Fecha hasta"),h("input",{type:"date",style:INP,value:filters.dateTo,onChange:ev=>setFilters({...filters,dateTo:ev.target.value})})),
@@ -5776,26 +5792,36 @@ function FeedbackCenter({feedbackRecords,statisticalRecords,evaluationRecords,on
       h("div",{style:{fontSize:11,color:"#8b92a5",marginBottom:16}},filteredRecords.length," registros encontrados"),
       h("div",{style:{overflowX:"auto"}},
         h("table",{style:{width:"100%",borderCollapse:"collapse"}},
-          h("thead",null,h("tr",null,["Asesor","Tipo de gestion","Clasificacion / Refuerzo","Resultado","Estado","Fecha","Ficha","Acciones"].map(header=>h("th",{key:header,style:{textAlign:"left",fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",padding:"12px 16px",borderBottom:"1px solid rgba(255,255,255,0.05)"}},header)))),
+          h("thead",null,h("tr",null,["Asesor","Evaluador","Tipo de gestion","Clasificacion / Refuerzo","Resultado","Gestion","Creacion","Gestionado",...(role === "admin" ? ["SLA"] : []),"Ficha","Acciones"].map(header=>h("th",{key:header,style:{textAlign:"left",fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",padding:"12px 16px",borderBottom:"1px solid rgba(255,255,255,0.05)"}},header)))),
           h("tbody",null,
             filteredRecords.map(record=>{
               const statistical = isStatisticalFeedbackRecord(record);
               const evaluation = getLinkedEvaluation(evaluationRecords, statistical ? record.sourceFeedbackId : record.id);
-              const statusTheme = getFeedbackStatusTheme(record.estado || record.status || "pending");
+              const effectiveStatus = record.managementStatus || record.estado || record.status || "pending";
+              const statusTheme = getFeedbackStatusTheme(effectiveStatus);
               const management = record.tipoGestion || record.feedbackCategory || "-";
               const classification = record.clasificacionFeedback || record.tipoRefuerzo || "-";
+              const canEditRecord = ["admin","analista"].includes(role) || (["supervisor","coordinador"].includes(role) && isRecordOwnedByCurrentUser(record,currentUser));
+              const createdMs = getDateMs(record.createdAt || record.feedbackDate);
+              const managedMs = getDateMs(record.managedAt || record.closedWithoutManagementAt);
+              const elapsedMs = createdMs && managedMs ? Math.max(0, managedMs-createdMs) : (createdMs ? Math.max(0,Date.now()-createdMs) : 0);
+              const slaLabel = createdMs ? `${Math.floor(elapsedMs/3600000)}h ${Math.floor((elapsedMs%3600000)/60000)}m` : "-";
               return h("tr",{key:record.id,style:{borderBottom:"1px solid rgba(255,255,255,0.03)"}},
                 h("td",{style:{padding:"14px 16px",fontSize:12,color:"#fff",fontWeight:700}},record.asesorNombre || record.assessor),
+                h("td",{style:{padding:"14px 16px",fontSize:12,color:"#cbd5e1"}},record.auditorNombre || record.authorName || "-"),
                 h("td",{style:{padding:"14px 16px",fontSize:12,color:getFeedbackCategoryTheme(management).color,fontWeight:700}},management),
                 h("td",{style:{padding:"14px 16px",fontSize:12,color:"#cbd5e1"}},classification),
                 h("td",{style:{padding:"14px 16px",fontSize:12,color:"#fff"}},record.resultadoGeneral || evaluation?.resultadoGeneral || "-"),
                 h("td",{style:{padding:"14px 16px"}},h("span",{style:{background:statusTheme.bg,border: `1px solid ${statusTheme.border}`,color:statusTheme.color,padding:"6px 10px",borderRadius:999,fontSize:10,fontWeight:800,letterSpacing:"0.1em"}},statusTheme.label)),
-                h("td",{style:{padding:"14px 16px",fontSize:12,color:"#8b92a5"}},formatFeedbackDate(record.feedbackDate || record.createdAt)),
+                h("td",{style:{padding:"14px 16px",fontSize:12,color:"#8b92a5"}},formatFeedbackDate(record.createdAt || record.feedbackDate)),
+                h("td",{style:{padding:"14px 16px",fontSize:12,color:"#8b92a5"}},record.managedAt ? formatFeedbackDate(record.managedAt) : record.closedWithoutManagementAt ? formatFeedbackDate(record.closedWithoutManagementAt) : "-"),
+                role === "admin" && h("td",{style:{padding:"14px 16px",fontSize:12,color:elapsedMs > 86400000 ? "#FF6B7A" : "#19C37D",fontWeight:700}},slaLabel),
                 h("td",{style:{padding:"14px 16px",fontSize:11,color:evaluation ? "#19C37D" : "#8b92a5",fontWeight:700}},evaluation ? `Ficha ${evaluation.estadoEvaluacion === "closed" ? "cerrada" : "activa"}` : "Sin ficha"),
                 h("td",{style:{padding:"14px 16px"}},
                   h("div",{style:{display:"flex",flexWrap:"wrap",gap:8}},
                     h("button",{style:{...BTN("s"),padding:"8px 12px"},onClick:()=>onOpenPreview(record)},"VER FICHA"),
-                    !statistical && ["admin","analista"].includes(role) && h("button",{style:{...BTN("out"),padding:"8px 12px"},onClick:()=>onEditFeedback(record)},"EDITAR"),
+                    !statistical && canEditRecord && record.automaticFromEvaluation && effectiveStatus === "pending" && h("button",{style:{...BTN("pink"),padding:"8px 12px"},onClick:()=>onMarkFeedbackRealized(record)},"MARCAR REALIZADO"),
+                    !statistical && canEditRecord && !record.automaticFromEvaluation && h("button",{style:{...BTN("out"),padding:"8px 12px"},onClick:()=>onEditFeedback(record)},"EDITAR"),
                     !statistical && role === "admin" && h("button",{style:{...BTN("out"),padding:"8px 12px",color:"#FF6B7A",border:"1px solid rgba(255,77,90,0.35)"},onClick:()=>onDeleteFeedback(record)},"ELIMINAR"),
                     !statistical && canFillEvaluation(currentUser) && h("button",{style:{...BTN("out"),padding:"8px 12px"},onClick:()=>onOpenEvaluation(record)},evaluation ? "EDITAR EVAL." : "REGISTRAR EVAL.")
                   )
@@ -6395,6 +6421,7 @@ function App(){
     const saved = await saveEvaluationEntry(payload);
     if (saved) {
       upsertEvaluationInState(saved);
+      await reloadFeedbackRecords();
     }
     return saved;
   };
@@ -6403,6 +6430,7 @@ function App(){
     const saved = await updateEvaluationEntry(payload);
     if (saved) {
       upsertEvaluationInState(saved);
+      await reloadFeedbackRecords();
     }
     return saved;
   };
@@ -6499,11 +6527,11 @@ function App(){
 }
 
 function canViewDashboards(user){
-  return ["admin","analista","supervisor","formador"].includes(String(user?.rol||"").trim().toLowerCase());
+  return ["admin","analista","supervisor","coordinador","formador"].includes(String(user?.rol||"").trim().toLowerCase());
 }
 
 function canViewImprovementDashboard(user){
-  return ["admin","analista","supervisor","formador"].includes(String(user?.rol||"").trim().toLowerCase());
+  return ["admin","analista","supervisor","coordinador","formador"].includes(String(user?.rol||"").trim().toLowerCase());
 }
 
 function canViewOperationalIncidents(user){
@@ -8395,6 +8423,19 @@ function App(){
     }
   };
 
+  const marcarFeedbackRealizado = async record => {
+    if (!record?.id) return false;
+    try {
+      await updateFeedbackEntry({id:record.id,action:"mark_realized",currentUser,actorUser:currentUser.usuario,actorName:currentUser.nombre,actorRole:ROL_LABEL[currentUser.rol] || currentUser.rol});
+      await reloadFeedbackRecords();
+      notify("s","Feedback marcado como realizado.");
+      return true;
+    } catch (error) {
+      notify("e",error?.message || "No se pudo actualizar la gestion del feedback.");
+      return false;
+    }
+  };
+
   const openEvaluationModal = (feedbackRecord, evaluationRecord = null) => {
     const advisorName = feedbackRecord?.asesorNombre || feedbackRecord?.advisorName || feedbackRecord?.assessor || feedbackRecord?.asesor || "";
     if (!evaluationRecord && advisorName && isAdvisorInactive(advisorName)) {
@@ -8551,8 +8592,8 @@ function App(){
           view==="communications" && h(CommunicationsCenter,{records:scopedCommunicationRecords,currentUser,onSave:guardarComunicado,onDelete:eliminarComunicado,onAddComment:comentarComunicado,onDeleteComment:eliminarComentarioComunicado,onMarkRead:marcarComunicadoLeido,onRefresh:reloadCommunications,notify,users:scopedUsers,focusedCommunicationId}),
           view==="notifications" && h(NotificationCenter,{currentUser,notifications:scopedNotifications,onRefresh:reloadNotifications,onOpenNotificationTarget:openNotificationTarget}),
           view==="legend" && h(LegendCenter,{concepts:scopedLegendConcepts,onRefresh:reloadLegend}),
-          !isCommercialDevelopmentActive && view==="evaluations" && canViewDashboards(currentUser) && h(EvaluationsCenter,{currentUser,evaluationRecords:scopedEvaluationRecords,staffing:scopedStaffing,onOpenEvaluation:openEvaluationModal,onDeleteEvaluation:eliminarEvaluacion,platformId:currentPlatformId}),
-          !isCommercialDevelopmentActive && view==="feedback" && canViewTeamFeedback(currentUser) && h(FeedbackCenter,{feedbackRecords:scopedFeedbackRecords,statisticalRecords:scopedFeedbackVolumeRecords,evaluationRecords:scopedEvaluationRecords,onOpenFeedback:openFeedbackModal,onCreateVolume:generarVolumenFeedbacks,onEditFeedback:editFeedback,onDeleteFeedback:eliminarFeedback,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,advisorOptions,currentUser,notify,staffing:scopedStaffing,users:scopedUsers}),
+          !isCommercialDevelopmentActive && view==="evaluations" && canViewDashboards(currentUser) && h(EvaluationsCenter,{currentUser,evaluationRecords:scopedEvaluationRecords,staffing:scopedStaffing,users:scopedUsers,onOpenEvaluation:openEvaluationModal,onDeleteEvaluation:eliminarEvaluacion,platformId:currentPlatformId}),
+          !isCommercialDevelopmentActive && view==="feedback" && canViewTeamFeedback(currentUser) && h(FeedbackCenter,{feedbackRecords:scopedFeedbackRecords,statisticalRecords:scopedFeedbackVolumeRecords,evaluationRecords:scopedEvaluationRecords,onCreateVolume:generarVolumenFeedbacks,onEditFeedback:editFeedback,onDeleteFeedback:eliminarFeedback,onMarkFeedbackRealized:marcarFeedbackRealizado,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,advisorOptions,currentUser,notify,staffing:scopedStaffing,users:scopedUsers}),
           !isCommercialDevelopmentActive && view==="incidents" && canViewOperationalIncidents(currentUser) && h(OperationalIncidentsCenter,{records:scopedOperationalIncidents,noTipificationRecords:scopedNoTipificationRecords,currentUser,advisorOptions,staffing:scopedStaffing,onSave:guardarIncidenciaOperativa,onSaveNoTipification:guardarNoTipificacion,onUpdate:actualizarIncidenciaOperativa,onDelete:eliminarIncidenciaOperativa,notify}),
           !isCommercialDevelopmentActive && view==="salesValidation" && canViewSalesValidationModule(currentUser) && h(SalesValidationCenter,{records:scopedSalesValidations,currentUser,onSave:guardarValidacionVenta,onDelete:eliminarValidacionVenta,onRestore:restaurarValidacionVenta}),
           view==="commercialDevelopment" && canViewCommercialDevelopmentModule(currentUser,currentPlatformId) && (commercialDevelopmentLoading
@@ -8567,7 +8608,7 @@ function App(){
     h(TigerChatWidget,{currentUser,messages:chatMessages,isOpen:chatOpen,onToggle:()=>setChatOpen(prev=>!prev),onSendMessage:sendInternalChatMessage,onAskAi:askTigerAi,sending:chatSending,aiLoading:chatAiLoading}),
     h(UserManualModal,{isOpen:manualOpen,currentUser,onClose:()=>setManualOpen(false)}),
     currentUser?.passwordChangeRequired && h(PasswordChangeModal,{currentUser,onChangePassword:cambiarContrasenaActual}),
-    h(FeedbackModal,{isOpen:feedbackModalAssessor!==null,onClose:closeFeedbackModal,onSave:guardarFeedback,currentUser,advisorOptions,advisorProfiles,users,defaultAssessor:feedbackModalAssessor || "",editingRecord:editingFeedbackRecord,notify}),
+    h(FeedbackModal,{isOpen:feedbackModalAssessor!==null,onClose:closeFeedbackModal,onSave:guardarFeedback,currentUser,advisorOptions,advisorProfiles,users,defaultAssessor:feedbackModalAssessor || "",editingRecord:editingFeedbackRecord,disableScheduling:normalizeClientId(currentPlatformId)===DEFAULT_PLATFORM_ID,notify}),
     h(NoTipificationModal,{isOpen:!!selectedNoTipificationEntry,onClose:closeNoTipificationModal,entryContext:selectedNoTipificationEntry,currentUser,onSave:guardarNoTipificacion,notify}),
     h(EvaluationModal,{isOpen:!!selectedEvaluationFeedback,onClose:closeEvaluationModal,feedbackRecord:selectedEvaluationFeedback,evaluationRecord:editingEvaluation,currentUser,users:scopedUsers,onSave:guardarEvaluacion,onUpdate:actualizarEvaluacion,notify,platform:selectedPlatform}),
     h(EvaluationHistoryModal,{advisorName:selectedEvaluationHistoryAdvisor,evaluations:scopedEvaluationRecords,evaluationsLoading,feedbackRecords:scopedFeedbackRecords,noTipificationRecords:scopedNoTipificationRecords,currentUser,onClose:closeEvaluationHistory,onOpenEvaluation:openEvaluationModal,onOpenPreview:openPreviewModal,onDeleteEvaluation:eliminarEvaluacion}),
@@ -8805,27 +8846,36 @@ function buildNoTipificationEntryContext(data){
 
 function canViewEvaluationRecord(currentUser, staffing, evaluation){
   const role = String(currentUser?.rol || "").trim().toLowerCase();
-  if (["admin","analista","supervisor","formador"].includes(role)) return true;
+  if (["admin","analista","supervisor","coordinador","formador"].includes(role)) return true;
   return false;
+}
+
+function isRecordForCeasedAdvisor(record, staffing){
+  const advisorName = record?.asesorNombre || record?.advisorName || record?.assessor || record?.asesor || "";
+  if (!normalizeName(advisorName)) return false;
+  const profile = (Array.isArray(staffing) ? staffing : []).find(item => normalizeName(item?.asesor) === normalizeName(advisorName));
+  return profile ? !isStaffingActive(profile) : false;
 }
 
 function getVisibleEvaluationRecords(currentUser, staffing, evaluationRecords){
   return (evaluationRecords || [])
     .filter(Boolean)
+    .filter(item => !isRecordForCeasedAdvisor(item, staffing))
     .filter(item => canViewEvaluationRecord(currentUser, staffing, item));
 }
 
-function EvaluationsCenter({currentUser,evaluationRecords,staffing,onOpenEvaluation,onDeleteEvaluation,platformId}){
+function EvaluationsCenter({currentUser,evaluationRecords,staffing,users,onOpenEvaluation,onDeleteEvaluation,platformId}){
   const [search,setSearch] = useState("");
   const [modeFilter,setModeFilter] = useState(() => String(currentUser?.rol || "").trim().toLowerCase() === "formador" ? "ojt" : "all");
   const [monitorFilter,setMonitorFilter] = useState("all");
   const [newEvaluationOpen,setNewEvaluationOpen] = useState(false);
   const [selectedAdvisor,setSelectedAdvisor] = useState("");
   const visibleEvaluationRecords = useMemo(() => getVisibleEvaluationRecords(currentUser, staffing, evaluationRecords), [evaluationRecords,currentUser,staffing]);
+  const qualityRoleUsers = useMemo(() => (users || []).filter(user => ["analista","monitor"].includes(String(user?.rol || user?.role || "").trim().toLowerCase()) && !isInactiveProfileStatus(user?.estado)), [users]);
   const qualityMonitors = useMemo(() => [...new Set(visibleEvaluationRecords
     .map(item => getImprovementQualityAnalystName(item))
-    .filter(Boolean))]
-    .sort((a,b)=>String(a).localeCompare(String(b),"es",{sensitivity:"base"})), [visibleEvaluationRecords]);
+    .filter(name => name && qualityRoleUsers.some(user => normalizeName(user?.nombre) === normalizeName(name) || normalizeLoginKey(user?.usuario) === normalizeLoginKey(name))))]
+    .sort((a,b)=>String(a).localeCompare(String(b),"es",{sensitivity:"base"})), [visibleEvaluationRecords,qualityRoleUsers]);
   const rows = useMemo(() => visibleEvaluationRecords
     .filter(item => modeFilter === "all" || (modeFilter === "ojt" ? isOjtEvaluationRecord(item) : !isOjtEvaluationRecord(item)))
     .filter(item => monitorFilter === "all" || getImprovementQualityAnalystName(item) === monitorFilter)
@@ -8911,7 +8961,6 @@ function EvaluationsCenter({currentUser,evaluationRecords,staffing,onOpenEvaluat
           {key:"fechaEvaluacion",label:"Fecha",render:row=>formatFeedbackDate(row.fechaEvaluacion || row.createdAt)},
           {key:"evaluationMode",label:"Modalidad",render:row=>isOjtEvaluationRecord(row) ? "OJT" : "Operacion"},
           {key:"asesorNombre",label:"Asesor",bold:true},
-          {key:"formadorNombre",label:"Formador",render:row=>row.formadorNombre || "-"},
           {key:"resultadoGeneral",label:"Nota",bold:true},
           {key:"estadoEvaluacion",label:"Estado",render:row=>h("span",{style:{background:row.estadoEvaluacion==="closed" ? "rgba(25,195,125,0.12)" : "rgba(29,43,255,0.12)",border:row.estadoEvaluacion==="closed" ? "1px solid rgba(25,195,125,0.28)" : "1px solid rgba(29,43,255,0.28)",color:row.estadoEvaluacion==="closed" ? "#19C37D" : THEME.primary,padding:"6px 10px",borderRadius:999,fontSize:10,fontWeight:800,letterSpacing:"0.1em",fontFamily:THEME.displayFont}},row.estadoEvaluacion==="closed" ? "CERRADA" : "GUARDADA")},
           {key:"auditorNombre",label:"Auditor"},
@@ -9204,7 +9253,7 @@ function buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,
 
   const canSeeAdvisor = (advisorName, linkedFeedback = null) => {
     const role = String(currentUser?.rol || "").trim().toLowerCase();
-    if (["admin","analista","formador"].includes(role)) return true;
+    if (["admin","analista","formador","coordinador"].includes(role)) return true;
     if (role === "supervisor") {
       return true;
     }
@@ -9234,6 +9283,7 @@ function buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,
       qualityAnalyst: getImprovementQualityAnalystName(evaluation, linkedFeedback),
       supervisor: isOjt ? "OJT" : supervisor,
       coordinador: isOjt ? (evaluation?.formadorNombre || "") : coordinador,
+      staffingActive: staffingItem ? isStaffingActive(staffingItem) : true,
       antiguedad: Number(staffingItem?.antiguedad || 0) || 0,
       fechaIngreso: staffingItem?.fechaIngreso || "",
       managementTypeRuc: campaign || "",
@@ -9281,6 +9331,7 @@ function buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,
         qualityAnalyst: getImprovementQualityAnalystName(record),
         supervisor: record?.supervisor || staffingItem?.supervisor || "",
         coordinador: record?.coordinador || staffingItem?.coordinador || "",
+        staffingActive: staffingItem ? isStaffingActive(staffingItem) : true,
         antiguedad: Number(record?.antiguedad || staffingItem?.antiguedad || 0) || 0,
         fechaIngreso: record?.fechaIngreso || staffingItem?.fechaIngreso || "",
         managementTypeRuc: campaign || "",
@@ -9356,6 +9407,7 @@ function buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,
         antiguedad: Number(item?.antiguedad || staffingItem?.antiguedad || 0) || 0,
         fechaIngreso: item?.fechaIngreso || staffingItem?.fechaIngreso || "",
         managementTypeRuc,
+        staffingActive: staffingItem ? isStaffingActive(staffingItem) : true,
         quartile: quartileLookup[normalizeName(advisorName)]?.quartile || ""
       };
     });
@@ -9678,16 +9730,22 @@ function countActiveImprovementFilters(filters){
   return Object.values(filters || {}).filter(value => Array.isArray(value) ? value.length : Boolean(value)).length;
 }
 
-function buildImprovementOptions(dataset){
+function buildImprovementOptions(dataset, users = []){
   const feedbackRows = Array.isArray(dataset?.feedbackRows) ? dataset.feedbackRows : [];
   const noTipificationRows = Array.isArray(dataset?.noTipificationRows) ? dataset.noTipificationRows : [];
   const rucOptions = uniqueSortedValues([...feedbackRows.map(row => normalizeEntelRucType(row.managementTypeRuc)), ...noTipificationRows.map(row => normalizeEntelRucType(row.managementTypeRuc))])
     .filter(value => value === "RUC 10" || value === "RUC 20");
+  const roleValues = (values, roles) => {
+    const allowed = (Array.isArray(users) ? users : []).filter(user => roles.includes(String(user?.rol || user?.role || "").trim().toLowerCase()) && !isInactiveProfileStatus(user?.estado));
+    return uniqueSortedValues(values).filter(value => allowed.some(user =>
+      normalizeName(user?.nombre) === normalizeName(value) || normalizeLoginKey(user?.usuario) === normalizeLoginKey(value)
+    ));
+  };
   return {
-    advisors: uniqueSortedValues([...feedbackRows.map(row => row.advisorName), ...noTipificationRows.map(row => row.advisorName)]),
-    qualityAnalysts: uniqueSortedValues([...feedbackRows.map(row => row.qualityAnalyst), ...noTipificationRows.map(row => row.qualityAnalyst)]),
-    supervisors: uniqueSortedValues([...feedbackRows.map(row => row.supervisor), ...noTipificationRows.map(row => row.supervisor)]),
-    coordinadores: uniqueSortedValues([...feedbackRows.map(row => row.coordinador), ...noTipificationRows.map(row => row.coordinador)]),
+    advisors: uniqueSortedValues([...feedbackRows.filter(row=>row.staffingActive!==false).map(row => row.advisorName), ...noTipificationRows.filter(row=>row.staffingActive!==false).map(row => row.advisorName)]),
+    qualityAnalysts: roleValues([...feedbackRows.map(row => row.qualityAnalyst), ...noTipificationRows.map(row => row.qualityAnalyst)], ["analista","monitor"]),
+    supervisors: roleValues([...feedbackRows.map(row => row.supervisor), ...noTipificationRows.map(row => row.supervisor)], ["supervisor"]),
+    coordinadores: roleValues([...feedbackRows.map(row => row.coordinador), ...noTipificationRows.map(row => row.coordinador)], ["coordinador"]),
     antiguedadBuckets: uniqueSortedValues([...feedbackRows.map(row => getAntiguedadBucket(row.antiguedad)), ...noTipificationRows.map(row => getAntiguedadBucket(row.antiguedad))]),
     managementTypesRuc: rucOptions.length ? rucOptions : ["RUC 10","RUC 20"],
     quartiles: uniqueSortedValues([...feedbackRows.map(row => row.quartile), ...noTipificationRows.map(row => row.quartile)]).filter(value => /^Q[1-4]$/.test(value)),
@@ -9705,7 +9763,8 @@ function buildEmptyImprovementFilters(currentUser){
     qualityAnalyst: "",
     supervisor: "",
     coordinador: "",
-    managementTypeRuc: ""
+    managementTypeRuc: "",
+    excludeTerminated: true
   };
 }
 
@@ -9714,6 +9773,7 @@ function applyImprovementFilters(dataset, filters){
   const sectionRowsBeforeFilters = dataset.sectionRows || [];
   const sectionRowsAfterDate = sectionRowsBeforeFilters.filter(row => isWithinDateRange(row.date, filters.dateFrom, filters.dateTo));
   const matchRow = row => {
+    if (filters.excludeTerminated && row.staffingActive === false) return false;
     if (!isWithinDateRange(row.feedbackDate || row.callDateTime || row.date || row.lastActionDate || row.createdAt, filters.dateFrom, filters.dateTo)) return false;
     if (!advisorMatchesImprovementFilter(row.advisorName, filters.advisor)) return false;
     if (filters.quartile && !sameOption(row.quartile, filters.quartile)) return false;
@@ -12802,7 +12862,7 @@ function FeedbackPreviewModal({record,evaluation,currentUser,onClose,onMarkViewe
         h("div",{style:{fontSize:12,color:"#8b92a5",lineHeight:1.7,marginBottom:12}},isAdvisor ? "Indica si aceptas o no el feedback. El comentario es obligatorio." : "Cierra el feedback despues de la validacion del asesor. El comentario final es obligatorio."),
         h("textarea",{style:{...INP,minHeight:92,resize:"vertical"},value:actionComment,onChange:ev=>setActionComment(ev.target.value),placeholder:isAdvisor ? "Escribe tu comentario de validacion..." : "Escribe el comentario de cierre del supervisor..."})
       ),
-      isSupervisor && h("div",{style:{fontSize:12,color:"#38BDF8",marginBottom:18,fontWeight:700}},"Vista de solo lectura para el perfil Supervisor."),
+      isSupervisor && h("div",{style:{fontSize:12,color:"#38BDF8",marginBottom:18,fontWeight:700}},"Puedes consultar los registros y gestionar los feedbacks originados por tus propias evaluaciones."),
       h("div",{style:{display:"flex",justifyContent:"flex-end",gap:12,flexWrap:"wrap"}},
         !isSupervisor && h("button",{style:{...BTN("s"),padding:"10px 14px"},onClick:()=>window.print()},"IMPRIMIR"),
         canSetFollowUp && h("button",{style:{...BTN("s"),padding:"10px 14px"},onClick:onSetFollowUp},"EN SEGUIMIENTO"),
@@ -12861,8 +12921,9 @@ function buildEntelStaffingRowsFromActivity(evaluationRecords, feedbackRecords, 
 
 function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName,notify,onOpenFeedback,onOpenEvaluation,onOpenEvaluationHistory,onOpenNoTipification,evaluationRecords,feedbackRecords,currentUser,managementOnly}){
   const [form,setForm] = useState({asesor:"",supervisor:"",coordinador:"",antiguedad:"",fechaIngreso:"",tipoGestionRuc:"RUC 10",dni:"",estado:"activo"});
+  const [search,setSearch] = useState("");
   const [editingAdvisor,setEditingAdvisor] = useState("");
-  const [editForm,setEditForm] = useState({supervisor:"",coordinador:"",tipoGestionRuc:"RUC 10",dni:"",estado:"activo"});
+  const [editForm,setEditForm] = useState({asesor:"",supervisor:"",coordinador:"",tipoGestionRuc:"RUC 10",dni:"",estado:"activo"});
   const role = String(currentUser?.rol || "").trim().toLowerCase();
   const delegatedStaffingAccess = normalizeBooleanFlag(currentUser?.staffingAccess);
   const canEditRegistry = ["admin","analista"].includes(role) || delegatedStaffingAccess;
@@ -12943,8 +13004,21 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
       if (!String(next.usuarioAsignado || "").trim() && String(bestMatch.usuarioAsignado || "").trim()) next.usuarioAsignado = bestMatch.usuarioAsignado;
       return next;
     });
-    return enrichedRows.sort((a,b) => normalizeName(a?.asesor).localeCompare(normalizeName(b?.asesor)));
+    return enrichedRows.sort((a,b) => {
+      const activeDifference = Number(isStaffingActive(b)) - Number(isStaffingActive(a));
+      if (activeDifference) return activeDifference;
+      const aCreated = getDateMs(a?.createdAt || a?.addedAt || a?.fechaRegistro || "") || 0;
+      const bCreated = getDateMs(b?.createdAt || b?.addedAt || b?.fechaRegistro || "") || 0;
+      if (aCreated !== bCreated) return bCreated - aCreated;
+      return normalizeName(a?.asesor).localeCompare(normalizeName(b?.asesor));
+    });
   }, [activityStaffing, visibleStaffing]);
+  const filteredStaffing = useMemo(() => {
+    const needle = normalizeComparableValue(search);
+    if (!needle) return displayedStaffing;
+    return displayedStaffing.filter(item => [item?.asesor,item?.dni,item?.nroDocumento,item?.numeroDocumento,item?.documento]
+      .some(value => normalizeComparableValue(value).includes(needle)));
+  }, [displayedStaffing,search]);
   useEffect(() => {
     if (isCulqiStaffing && ["RUC 10","RUC 20"].includes(String(form.tipoGestionRuc || "").trim())) {
       setForm(prev => ({...prev,tipoGestionRuc:""}));
@@ -12989,7 +13063,7 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
     if (!canEditRegistry) { notify("e","No tienes permisos para agregar personas en Dotacion."); return; }
     if (!form.asesor.trim() || !form.supervisor.trim()) { notify("e","Completa asesor y supervisor."); return; }
     if (String(form.dni || "").trim() && !/^\d{8}$/.test(String(form.dni).trim())) { notify("e","El DNI debe tener 8 digitos."); return; }
-    const newItem = tagRecordForPlatform({...form,asesor:form.asesor.trim().toUpperCase(),antiguedad:+form.antiguedad || 0,estado:normalizeProfileStatus(form.estado || "activo")}, clientId || DEFAULT_PLATFORM_ID, clientName);
+    const newItem = tagRecordForPlatform({...form,asesor:form.asesor.trim().toUpperCase(),antiguedad:+form.antiguedad || 0,estado:normalizeProfileStatus(form.estado || "activo"),createdAt:new Date().toISOString()}, clientId || DEFAULT_PLATFORM_ID, clientName);
     const updated = [...displayedStaffing, newItem];
     const saved = await savePlatformStaffing(updated);
     if (saved === false) { notify("e","No se pudo guardar staffing."); return; }
@@ -13000,6 +13074,7 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
   const startEdit = advisor => {
     setEditingAdvisor(advisor.asesor);
     setEditForm({
+      asesor: advisor.asesor || "",
       supervisor: advisor.supervisor || "",
       coordinador: advisor.coordinador || "",
       tipoGestionRuc: advisor.tipoGestionRuc || advisor.campaign || defaultManagementType,
@@ -13009,21 +13084,25 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
   };
   const cancelEdit = () => {
     setEditingAdvisor("");
-    setEditForm({supervisor:"",coordinador:"",tipoGestionRuc:defaultManagementType,dni:"",estado:"activo"});
+    setEditForm({asesor:"",supervisor:"",coordinador:"",tipoGestionRuc:defaultManagementType,dni:"",estado:"activo"});
   };
   const saveEdit = async asesor => {
     if (!canEditRegistry) { notify("e","No tienes permisos para editar Dotacion."); return; }
+    if (!String(editForm.asesor || "").trim()) { notify("e","El nombre del colaborador es obligatorio."); return; }
     if (!String(editForm.supervisor || "").trim()) { notify("e","El supervisor es obligatorio."); return; }
     if (String(editForm.dni || "").trim() && !/^\d{8}$/.test(String(editForm.dni).trim())) { notify("e","El DNI debe tener 8 digitos."); return; }
+    const nextAdvisorName = String(editForm.asesor || "").trim().toUpperCase();
+    if (displayedStaffing.some(item => item.asesor !== asesor && normalizeName(item.asesor) === normalizeName(nextAdvisorName))) { notify("e","Ya existe un colaborador con ese nombre."); return; }
     const updated = displayedStaffing.map(item => item.asesor === asesor ? {
       ...item,
+      asesor: nextAdvisorName,
       supervisor: String(editForm.supervisor || "").trim(),
       coordinador: String(editForm.coordinador || "").trim(),
       tipoGestionRuc: String(editForm.tipoGestionRuc || defaultManagementType).trim(),
       dni: String(editForm.dni || "").trim(),
       estado: normalizeProfileStatus(editForm.estado || "activo")
     } : item);
-    const updatedItem = updated.find(item => item.asesor === asesor);
+    const updatedItem = updated.find(item => normalizeName(item.asesor) === normalizeName(nextAdvisorName));
     const saved = await saveStaffingAndUserStatus(updated, updatedItem, updatedItem?.estado, "No se pudo actualizar el asesor.");
     if (!saved) return;
     cancelEdit();
@@ -13067,12 +13146,15 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
       canEditRegistry && h("button",{style:{...BTN("p"),justifyContent:"center"},onClick:add}, I("plus",14,"#fff"), "AGREGAR ASESOR")
     ),
     h("div",{style:CARD},
-      h("div",{style:{fontSize:11,fontWeight:700,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.15em",marginBottom:20}}, displayedStaffing.length, " asesores registrados"),
+      h("div",{style:{display:"flex",alignItems:"flex-end",justifyContent:"space-between",gap:16,marginBottom:20,flexWrap:"wrap"}},
+        h("div",{style:{fontSize:11,fontWeight:700,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.15em"}}, displayedStaffing.length, " asesores registrados"),
+        h("div",{style:{minWidth:280}},h("div",{style:{fontSize:10,color:"#8b92a5",marginBottom:8,fontWeight:700,textTransform:"uppercase"}},"Buscar por DNI o nombre"),h("input",{style:INP,value:search,placeholder:"Escribe para buscar...",onChange:event=>setSearch(event.target.value)}))
+      ),
       h("div",{style:{overflowX:"auto"}},
         h("table",{style:{width:"100%",borderCollapse:"collapse"}},
           h("thead",null,h("tr",null,["Asesor","DNI","Supervisor","Coordinador","Antiguedad",isCulqiStaffing ? "Campana" : "Tipo gestion","Estado","Evaluaciones ingresadas","Acciones"].map(hd => h("th",{key:hd,style:{textAlign:"left",fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",padding:"12px 16px",borderBottom:"1px solid rgba(255,255,255,0.05)"}}, hd)))),
           h("tbody",null,
-            displayedStaffing.map(s => {
+            filteredStaffing.map(s => {
               const advisorEvaluations = getAdvisorEvaluationHistory(evaluationRecords, s.asesor);
               const advisorFeedbacks = getAdvisorFeedbackHistory(feedbackRecords, s.asesor);
               const isEditing = editingAdvisor === s.asesor;
@@ -13083,7 +13165,7 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
                 key:s.asesor,
                 style:{borderBottom:"1px solid rgba(255,255,255,0.03)"}
               },
-                h("td",{style:{padding:"14px 16px",fontSize:12,color:"#fff",fontWeight:700}}, s.asesor),
+                h("td",{style:{padding:"14px 16px",fontSize:12,color:"#fff",fontWeight:700}}, isEditing ? h("input",{style:{...INP,padding:"10px 12px"},value:editForm.asesor,onChange:event=>setEditForm(prev=>({...prev,asesor:event.target.value}))}) : s.asesor),
                 h("td",{style:{padding:"14px 16px",fontSize:12,color:"#8b92a5"}}, isEditing ? h("input",{style:{...INP,padding:"10px 12px"},placeholder:"12345678",value:editForm.dni,onChange:ev=>setEditForm(prev=>({...prev,dni:ev.target.value.replace(/[^\d]/g,"").slice(0,8)}))}) : (s.dni || s.nroDocumento || s.numeroDocumento || s.documento || s.documentNumber || "-")),
                 h("td",{style:{padding:"14px 16px",fontSize:12,color:"#8b92a5"}}, isEditing ? h("input",{style:{...INP,padding:"10px 12px"},value:editForm.supervisor,onChange:ev=>setEditForm(prev=>({...prev,supervisor:ev.target.value}))}) : (s.supervisor || "-")),
                 h("td",{style:{padding:"14px 16px",fontSize:12,color:"#8b92a5"}}, isEditing ? h("input",{style:{...INP,padding:"10px 12px"},value:editForm.coordinador,onChange:ev=>setEditForm(prev=>({...prev,coordinador:ev.target.value}))}) : (s.coordinador || "-")),
@@ -13110,7 +13192,7 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
                         ]
                       : h("button",{style:{...BTN("out"),padding:"8px 12px"},onClick:() => startEdit(s)},"EDITAR")),
                     canChangeStatus && h("button",{style:{...BTN(activeProfile ? "out" : "pink"),padding:"8px 12px"},onClick:() => toggleStatus(s)},activeProfile ? "CESAR" : "ACTIVAR"),
-                    !managementOnly && onOpenFeedback && h("button",{style:{...BTN("s"),padding:"8px 12px",...(activeProfile ? {} : blockedButtonStyle)},disabled:!activeProfile,title:activeProfile ? "" : "Perfil cesado: no admite nuevos feedbacks",onClick:() => activeProfile && onOpenFeedback(s.asesor)}, I("send",12,"#fff"), "FEEDBACK"),
+                    !managementOnly && isCulqiStaffing && onOpenFeedback && h("button",{style:{...BTN("s"),padding:"8px 12px",...(activeProfile ? {} : blockedButtonStyle)},disabled:!activeProfile,title:activeProfile ? "" : "Perfil cesado: no admite nuevos feedbacks",onClick:() => activeProfile && onOpenFeedback(s.asesor)}, I("send",12,"#fff"), "FEEDBACK"),
                     !managementOnly && onOpenEvaluation && h("button",{style:{...BTN("out"),padding:"8px 12px",...(activeProfile ? {} : blockedButtonStyle)},disabled:!activeProfile,title:activeProfile ? "" : "Perfil cesado: no admite nuevas evaluaciones",onClick:() => activeProfile && onOpenEvaluation(buildEvaluationEntryContext({asesor:s.asesor,supervisor:s.supervisor,coordinador:s.coordinador,antiguedad:s.antiguedad,fechaIngreso:s.fechaIngreso,tipoGestionRuc:s.tipoGestionRuc,estado:s.estado}))}, I("file",12,"#8b92a5"), "EVALUACION"),
                     !managementOnly && onOpenNoTipification && h("button",{style:{...BTN("out"),padding:"8px 12px",...(activeProfile ? {} : blockedButtonStyle)},disabled:!activeProfile,title:activeProfile ? "" : "Perfil cesado: no admite nuevas alertas",onClick:() => activeProfile && onOpenNoTipification(buildNoTipificationEntryContext({asesor:s.asesor,usuarioAsignado:s.usuarioAsignado,supervisor:s.supervisor,coordinador:s.coordinador,antiguedad:s.antiguedad,fechaIngreso:s.fechaIngreso,tipoGestionRuc:s.tipoGestionRuc,estado:s.estado}))}, I("alert",12,"#8b92a5"), "NO TIPIFICACION"),
                     canDeleteRegistry && h("button",{style:{background:"rgba(230,0,168,0.10)",border:"1px solid rgba(230,0,168,0.2)",borderRadius:8,padding:"8px",cursor:"pointer"},onClick:() => remove(s.asesor)}, I("trash",14,THEME.accent))
@@ -13132,7 +13214,7 @@ function ContinuousImprovementDashboard({currentUser,feedbackRecords,evaluationR
   const [advisorListOpen,setAdvisorListOpen] = useState(false);
   const [trendComparison,setTrendComparison] = useState({baseMonth:"",comparedMonth:""});
   const dataset = useMemo(() => buildImprovementDataset({currentUser,feedbackRecords,evaluationRecords,noTipificationRecords,staffing,historico,users}), [currentUser,feedbackRecords,evaluationRecords,noTipificationRecords,staffing,historico,users]);
-  const options = useMemo(() => buildImprovementOptions(dataset), [dataset]);
+  const options = useMemo(() => buildImprovementOptions(dataset, users), [dataset,users]);
   const selectedAdvisors = normalizeImprovementAdvisorFilter(filters.advisor);
   const filtered = useMemo(() => applyImprovementFilters(dataset, filters), [dataset,filters]);
   const advisorPoolForFilters = useMemo(() => applyImprovementFilters(dataset, {...filters,advisor:[]}), [dataset,filters]);
@@ -13289,7 +13371,7 @@ function ContinuousImprovementDashboard({currentUser,feedbackRecords,evaluationR
   return h(Fragment,null,
     h("div",{style:{marginBottom:34}},
       h("div",{style:{fontSize:11,color:THEME.primary,textTransform:"uppercase",letterSpacing:"0.28em",fontWeight:800,marginBottom:12,fontFamily:THEME.displayFont}},"QUALITY SCOREBOARD"),
-      h("h1",{style:{fontSize:44,fontWeight:700,color:THEME.text,letterSpacing:"0.03em",lineHeight:1.05,fontFamily:THEME.displayFont,textTransform:"uppercase",marginBottom:10}},"Dashboard de mejora continua"),
+      h("h1",{style:{fontSize:44,fontWeight:700,color:THEME.text,letterSpacing:"0.03em",lineHeight:1.05,fontFamily:THEME.displayFont,textTransform:"uppercase",marginBottom:10}},"Dashboard operativo calidad Entel"),
       h("div",{style:{fontSize:13,color:"#9aa4ba",maxWidth:900,lineHeight:1.7}},"El foco principal de esta vista es el seguimiento de evaluaciones ponderadas por asesor y por equipo. Desde aqui puedes registrar evaluaciones directas y medir si el acompanamiento esta generando recuperacion real.")
     ),
     h("div",{style:{...CARD,marginBottom:24,padding:20}},
@@ -13299,6 +13381,7 @@ function ContinuousImprovementDashboard({currentUser,feedbackRecords,evaluationR
           h("div",{style:{fontSize:11,color:"#8b92a5",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em"}},countActiveImprovementFilters(filters)," filtro(s) activo(s)")
         ),
         h("div",{style:{display:"flex",gap:10,flexWrap:"wrap"}},
+          h("button",{style:{...BTN(filters.excludeTerminated?"p":"out"),padding:"10px 14px"},onClick:()=>setFilters(prev=>({...prev,excludeTerminated:!prev.excludeTerminated}))},filters.excludeTerminated ? "EXCLUYENDO CESADOS" : "EXCLUIR CESADOS"),
           h("button",{style:{...BTN("s"),padding:"10px 14px"},onClick:exportDashboardData},I("dl",12,"#fff"),"DESCARGAR CSV"),
           activeAdvisor && h("button",{style:{...BTN("out"),padding:"10px 14px"},onClick:()=>openAdvisorNoTipification(activeAdvisor)},I("alert",12,"#8b92a5"),"ALERTA NO TIPIFICACION"),
           activeAdvisor && h("button",{style:{...BTN("pink"),padding:"10px 14px"},onClick:()=>openAdvisorEvaluation(activeAdvisor)},I("file",12,"#fff"),"INGRESAR EVALUACION")

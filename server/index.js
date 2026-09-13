@@ -194,4 +194,10 @@ app.use((error, _req, res, _next) => {
 
 app.listen(config.port, () => {
   console.log(`Calidad B2B local: http://localhost:${config.port}`);
+  gasHandlers.listFeedbackRecords().catch(error => console.error("[FEEDBACK_SLA_INITIAL_ERROR]", error));
 });
+
+const feedbackSlaInterval = setInterval(() => {
+  gasHandlers.listFeedbackRecords().catch(error => console.error("[FEEDBACK_SLA_INTERVAL_ERROR]", error));
+}, 15 * 60 * 1000);
+feedbackSlaInterval.unref();

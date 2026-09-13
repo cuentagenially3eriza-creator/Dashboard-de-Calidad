@@ -51,6 +51,7 @@ const QUALITY_VARIABLE_CALCULATIONS_KEY = "quality_variable_calculations_v1";
 const QUALITY_VARIABLE_AUDIT_KEY = "quality_variable_audit_v1";
 const evaluationWriteLocks = new Map();
 let evaluationIndexWriteQueue = Promise.resolve();
+let automaticFeedbackWriteQueue = Promise.resolve();
 const firebaseReadCache = new Map();
 const CACHE_TTL_MS = 15000;
 
@@ -58,6 +59,7 @@ const ROLE_LABELS = {
   admin: "Administrador",
   analista: "Analista",
   supervisor: "Supervisor",
+  coordinador: "Coordinador",
   formador: "Formador",
   referente_experto: "Referente Experto",
   asesor: "Asesor"
@@ -177,7 +179,7 @@ async function resolveEvaluationAuditor(payload, currentUser, currentRecord = nu
   );
   if (!evaluator) throw new Error("El evaluador seleccionado no existe en la gestion de usuarios.");
   if (isInactiveUserRecord(evaluator)) throw new Error("El evaluador seleccionado se encuentra inactivo.");
-  if (!["admin", "analista", "formador"].includes(getRole(evaluator))) {
+  if (!["admin", "analista", "formador", "supervisor", "coordinador"].includes(getRole(evaluator))) {
     throw new Error("El usuario seleccionado no tiene un rol habilitado para evaluar.");
   }
   return {
@@ -490,7 +492,99 @@ function normalizeFeedbackStatusForSave(advisorUser) {
 }
 
 function canManageFeedback(user) {
-  return ["admin", "analista", "formador"].includes(getRole(user));
+  return ["admin", "analista", "formador", "supervisor", "coordinador"].includes(getRole(user));
+}
+
+function isFeedbackOwner(record, user) {
+  const userKey = normalizeText(user?.usuario);
+  const userName = normalizeText(user?.nombre);
+  return [record?.authorUser, record?.auditorId, record?.createdBy]
+    .some(value => userKey && normalizeText(value) === userKey) ||
+    [record?.authorName, record?.auditorNombre]
+      .some(value => userName && normalizeText(value) === userName);
+}
+
+export function applyAutomaticFeedbackSla(records, nowMs = Date.now()) {
+  let changed = false;
+  const nextRecords = (Array.isArray(records) ? records : []).map(record => {
+    if (!record?.automaticFromEvaluation || String(record?.managementStatus || "") !== "pending") return record;
+    const createdMs = new Date(record.createdAt || record.feedbackDate || 0).getTime();
+    if (!Number.isFinite(createdMs) || nowMs - createdMs < 24 * 60 * 60 * 1000) return record;
+    changed = true;
+    return {
+      ...record,
+      managementStatus: "closed_unmanaged",
+      status: "closed_unmanaged",
+      estado: "closed_unmanaged",
+      closedWithoutManagementAt: new Date(createdMs + 24 * 60 * 60 * 1000).toISOString(),
+      updatedAt: new Date(nowMs).toISOString()
+    };
+  });
+  return { records: nextRecords, changed };
+}
+
+export function buildAutomaticFeedbackRecord({ evaluation, currentUser, role, clientId, evaluationId, existing = null, now, id }) {
+  const assessor = String(evaluation?.asesorNombre || "").trim().toUpperCase();
+  return {
+    ...(existing || {}),
+    id: existing?.id || id,
+    automaticFromEvaluation: true,
+    sourceEvaluationId: evaluationId,
+    evaluationId,
+    clientId,
+    platformId: clientId,
+    asesorId: String(evaluation?.asesorId || evaluation?.advisorUser || assessor).trim(),
+    advisorUser: String(evaluation?.advisorUser || "").trim(),
+    assessor,
+    asesorNombre: assessor,
+    auditorId: String(evaluation?.auditorId || currentUser.usuario || "").trim(),
+    auditorNombre: String(evaluation?.auditorNombre || currentUser.nombre || currentUser.usuario || "").trim(),
+    authorUser: String(evaluation?.auditorId || currentUser.usuario || "").trim(),
+    authorName: String(evaluation?.auditorNombre || currentUser.nombre || currentUser.usuario || "").trim(),
+    authorRole: ROLE_LABELS[role] || role,
+    supervisor: String(evaluation?.supervisor || evaluation?.supervisorName || "").trim(),
+    supervisorName: String(evaluation?.supervisorName || evaluation?.supervisor || "").trim(),
+    coordinador: String(evaluation?.coordinador || evaluation?.coordinator || "").trim(),
+    tipoGestion: "Feedback",
+    feedbackCategory: "Feedback",
+    clasificacionFeedback: String(evaluation?.clasificacionFeedback || "Feedback inicial").trim(),
+    campaign: String(evaluation?.campaign || evaluation?.tipoGestionRuc || "").trim(),
+    resultadoGeneral: String(evaluation?.resultadoGeneral || "").trim(),
+    observacionGeneral: String(evaluation?.observacionGeneral || evaluation?.detalleAuditadoGeneral || evaluation?.detalleAuditado || "").trim(),
+    feedbackText: String(evaluation?.oportunidadMejoraGeneral || evaluation?.oportunidadMejora || evaluation?.observacionGeneral || "").trim(),
+    compromisoMejora: String(evaluation?.compromisoMejora || "").trim(),
+    feedbackDate: existing?.feedbackDate || evaluation?.fechaEvaluacion || now,
+    managementStatus: existing?.managementStatus || "pending",
+    status: existing?.status || "pending",
+    estado: existing?.estado || "pending",
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+    updatedBy: String(currentUser.usuario || "").trim()
+  };
+}
+
+async function ensureAutomaticFeedbackForEvaluation(evaluation, currentUser) {
+  const role = getRole(currentUser);
+  const clientId = normalizeClientId(evaluation?.clientId || evaluation?.platformId);
+  if (clientId !== DEFAULT_CLIENT_ID || !["analista", "supervisor", "coordinador"].includes(role)) return null;
+
+  const evaluationId = normalizeId(evaluation?.idEvaluacion || evaluation?.id);
+  if (!evaluationId) return null;
+  const task = async () => {
+    const records = await readFeedbackRecords();
+    const existingIndex = records.findIndex(record =>
+      record?.automaticFromEvaluation && normalizeId(record?.sourceEvaluationId || record?.evaluationId) === evaluationId
+    );
+    const existing = existingIndex >= 0 ? records[existingIndex] : null;
+    const record = buildAutomaticFeedbackRecord({evaluation,currentUser,role,clientId,evaluationId,existing,now:nowIso(),id:generateNumericId()});
+  if (existingIndex >= 0) records[existingIndex] = record;
+  else records.unshift(record);
+  await writeFeedbackRecords(records);
+  return record;
+  };
+  const run = automaticFeedbackWriteQueue.then(task, task);
+  automaticFeedbackWriteQueue = run.catch(() => {});
+  return run;
 }
 
 export function buildFeedbackVolumeRecords({ operationalRecords, existingRecords = [], quantity, monitor, monitorUser, feedbackDate, month, clientId, clientName, createdBy, now, batchId }) {
@@ -3087,7 +3181,10 @@ export const gasHandlers = {
   },
 
   async listFeedbackRecords() {
-    return sortFeedbackRecords(await readFeedbackRecords());
+    const records = await readFeedbackRecords();
+    const slaResult = applyAutomaticFeedbackSla(records);
+    if (slaResult.changed) await writeFeedbackRecords(slaResult.records);
+    return sortFeedbackRecords(slaResult.records);
   },
 
   async listFeedbackVolumeRecords() {
@@ -3127,7 +3224,7 @@ export const gasHandlers = {
 
   async saveFeedbackRecord(payload = {}) {
     const currentUser = ensureCurrentUser(payload.currentUser);
-    requireRoles(currentUser, ["admin", "analista", "formador"], "No tienes permisos para crear feedbacks.");
+    requireRoles(currentUser, ["admin", "analista", "formador", "supervisor", "coordinador"], "No tienes permisos para gestionar feedbacks.");
 
     const assessor = String(payload.assessor || payload.asesorNombre || "").trim().toUpperCase();
     if (!assessor) throw new Error("El asesor es obligatorio para registrar feedback.");
@@ -3150,6 +3247,9 @@ export const gasHandlers = {
     const records = await readFeedbackRecords();
     const existingIndex = records.findIndex(item => Number(item?.id) === id);
     const existing = existingIndex >= 0 ? records[existingIndex] : null;
+    if (["supervisor", "coordinador"].includes(getRole(currentUser)) && (!existing || !isFeedbackOwner(existing, currentUser))) {
+      throw new Error("Solo puedes editar feedbacks generados desde tus propias evaluaciones.");
+    }
     if (existing && String(existing.estado || existing.status || "") === "closed" && getRole(currentUser) !== "admin") {
       throw new Error("Solo un administrador puede corregir un feedback cerrado.");
     }
@@ -3243,15 +3343,13 @@ export const gasHandlers = {
     });
     const feedbackId = Number(payload.id);
     if (!feedbackId) throw new Error("El id del feedback es obligatorio.");
-    if (getRole(currentUser) === "supervisor") throw new Error("El perfil Supervisor tiene acceso de solo lectura a Feedbacks.");
-
     const records = await readFeedbackRecords();
     const index = records.findIndex(record => Number(record?.id) === feedbackId);
     if (index < 0) throw new Error("No se encontro el feedback solicitado.");
 
     const record = { ...records[index] };
     const action = String(payload.action || "").trim();
-    const validActions = ["add_message", "submit_response", "accept_feedback", "reject_feedback", "submit_response_and_accept", "mark_viewed", "set_follow_up", "close_feedback"];
+    const validActions = ["add_message", "submit_response", "accept_feedback", "reject_feedback", "submit_response_and_accept", "mark_viewed", "set_follow_up", "close_feedback", "mark_realized"];
     if (!validActions.includes(action)) throw new Error("La accion de actualizacion no es valida.");
 
     const actorName = String(payload.acceptedByName || payload.actorName || currentUser.nombre || "").trim();
@@ -3260,8 +3358,9 @@ export const gasHandlers = {
     const actorIsAdvisor =
       normalizeText(actorUser) === normalizeText(record.advisorUser) ||
       getRole(currentUser) === "asesor";
+    const actorCanManageOwn = ["supervisor", "coordinador"].includes(getRole(currentUser)) && isFeedbackOwner(record, currentUser);
 
-    if (!canManageFeedback(currentUser) && !actorIsAdvisor) {
+    if ((!canManageFeedback(currentUser) || (["supervisor", "coordinador"].includes(getRole(currentUser)) && !actorCanManageOwn)) && !actorIsAdvisor) {
       throw new Error("No tienes permisos para acceder a este feedback.");
     }
 
@@ -3269,6 +3368,20 @@ export const gasHandlers = {
     const role = getRole(currentUser);
     if (feedbackIsClosed && role !== "admin") {
       throw new Error("Este feedback ya fue cerrado por supervisor. Solo un administrador puede modificarlo.");
+    }
+
+    if (action === "mark_realized") {
+      if (!record.automaticFromEvaluation) throw new Error("Solo los feedbacks automaticos admiten esta gestion.");
+      if (role !== "admin" && !isFeedbackOwner(record, currentUser)) {
+        throw new Error("Solo el evaluador puede gestionar este feedback.");
+      }
+      if (record.managementStatus !== "pending") throw new Error("Este feedback ya fue gestionado o cerrado por SLA.");
+      record.managementStatus = "realized";
+      record.status = "realized";
+      record.estado = "realized";
+      record.managedAt = nowIso();
+      record.managedBy = String(currentUser.usuario || "").trim();
+      record.managedByName = String(currentUser.nombre || currentUser.usuario || "").trim();
     }
 
     if (action === "mark_viewed") {
@@ -3414,7 +3527,7 @@ export const gasHandlers = {
   async saveEvaluationRecord(payload = {}) {
     const evaluationId = normalizeId(payload.idEvaluacion || payload.id) || String(generateNumericId());
     const currentUser = ensureCurrentUser(payload.currentUser);
-    requireRoles(currentUser, ["admin", "analista", "formador"], "No tienes permisos para guardar evaluaciones.");
+    requireRoles(currentUser, ["admin", "analista", "formador", "supervisor", "coordinador"], "No tienes permisos para guardar evaluaciones.");
     const auditor = await resolveEvaluationAuditor(payload, currentUser);
     const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
     const evaluation = {
@@ -3439,16 +3552,26 @@ export const gasHandlers = {
       estadoAdjuntos: attachments.length ? (storageResult.ok ? "completo" : "pendiente") : "sin_adjuntos",
       updatedAt: nowIso()
     };
-    return await persistEvaluation(withAttachmentState);
+    const savedEvaluation = await persistEvaluation(withAttachmentState);
+    const automaticFeedback = await ensureAutomaticFeedbackForEvaluation(savedEvaluation, currentUser);
+    return automaticFeedback
+      ? await persistEvaluation({...savedEvaluation, feedbackId: automaticFeedback.id})
+      : savedEvaluation;
   },
 
   async updateEvaluationRecord(payload = {}) {
     const id = normalizeId(payload.idEvaluacion || payload.id);
     if (!id) throw new Error("No se puede actualizar una evaluacion sin id.");
     const currentUser = ensureCurrentUser(payload.currentUser);
-    requireRoles(currentUser, ["admin", "analista", "formador"], "No tienes permisos para actualizar evaluaciones.");
+    requireRoles(currentUser, ["admin", "analista", "formador", "supervisor", "coordinador"], "No tienes permisos para actualizar evaluaciones.");
     const current = await gasHandlers.getEvaluationRecordDetail(id);
     if (!current) throw new Error(`No se encontro la evaluacion ${id}.`);
+    if (["supervisor", "coordinador"].includes(getRole(currentUser))) {
+      const currentOwner = normalizeText(current.auditorId || current.auditorUsuario);
+      if (!currentOwner || currentOwner !== normalizeText(currentUser.usuario)) {
+        throw new Error("Solo puedes editar evaluaciones registradas por tu usuario.");
+      }
+    }
     const auditor = await resolveEvaluationAuditor(payload, currentUser, current);
     const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
     const updated = await persistEvaluation({
@@ -3460,14 +3583,19 @@ export const gasHandlers = {
       updatedBy: String(currentUser.usuario || "").trim(),
       updatedAt: nowIso()
     });
-    if (!attachments.length) return updated;
+    if (!attachments.length) {
+      const automaticFeedback = await ensureAutomaticFeedbackForEvaluation(updated, currentUser);
+      return automaticFeedback ? await persistEvaluation({...updated, feedbackId: automaticFeedback.id}) : updated;
+    }
     const storageResult = await uploadAttachmentsWithFirebaseFallback(updated, attachments);
     const savedFiles = [...(updated.files || []), ...(storageResult.savedFiles || [])];
-    return await persistEvaluation({
+    const savedWithAttachments = await persistEvaluation({
       ...buildFileFieldsFromSavedFiles(updated, savedFiles, storageResult),
       estadoAdjuntos: storageResult.ok ? "completo" : "pendiente",
       updatedAt: nowIso()
     });
+    const automaticFeedback = await ensureAutomaticFeedbackForEvaluation(savedWithAttachments, currentUser);
+    return automaticFeedback ? await persistEvaluation({...savedWithAttachments, feedbackId: automaticFeedback.id}) : savedWithAttachments;
   },
 
   async deleteEvaluationRecord(payload = {}) {
@@ -3497,7 +3625,7 @@ export const gasHandlers = {
 
   async uploadEvaluationAttachment(payload = {}) {
     const currentUser = ensureCurrentUser(payload.currentUser);
-    requireRoles(currentUser, ["admin", "analista", "formador"], "No tienes permisos para subir adjuntos de evaluaciones.");
+    requireRoles(currentUser, ["admin", "analista", "formador", "supervisor", "coordinador"], "No tienes permisos para subir adjuntos de evaluaciones.");
     const id = normalizeId(payload.idEvaluacion || payload.id);
     if (!id) throw new Error("El id de la evaluacion es obligatorio.");
     return await withEvaluationWriteLock(id, async () => {
@@ -3541,7 +3669,7 @@ export const gasHandlers = {
 
   async markEvaluationAttachmentsPending(payload = {}) {
     const currentUser = ensureCurrentUser(payload.currentUser);
-    requireRoles(currentUser, ["admin", "analista", "formador"], "No tienes permisos para actualizar adjuntos de evaluaciones.");
+    requireRoles(currentUser, ["admin", "analista", "formador", "supervisor", "coordinador"], "No tienes permisos para actualizar adjuntos de evaluaciones.");
     const id = normalizeId(payload.idEvaluacion || payload.id);
     if (!id) throw new Error("El id de la evaluacion es obligatorio.");
     const current = await gasHandlers.getEvaluationRecordDetail(id);
