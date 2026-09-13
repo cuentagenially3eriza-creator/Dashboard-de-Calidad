@@ -504,10 +504,48 @@ function isFeedbackOwner(record, user) {
       .some(value => userName && normalizeText(value) === userName);
 }
 
+export function getAutomaticFeedbackFlowStatus(record = {}) {
+  if (!record?.automaticFromEvaluation) {
+    return String(record?.managementStatus || record?.estado || record?.status || "").trim();
+  }
+  const values = [record.managementStatus, record.estado, record.status]
+    .map(value => String(value || "").trim().toLowerCase());
+  if (values.includes("closed_unmanaged")) return "closed_unmanaged";
+  if (values.some(value => ["feedback_completed", "realized"].includes(value))) return "feedback_completed";
+  const advisorDecision = String(record.advisorValidationStatus || record.advisorDecision || "").trim().toLowerCase();
+  if (values.some(value => ["advisor_accepted", "accepted"].includes(value)) || advisorDecision === "accepted" || record.advisorAcceptedAt) {
+    return "advisor_accepted";
+  }
+  return "pending_feedback";
+}
+
+export function shouldCreateAutomaticFeedback(evaluation, currentUser) {
+  const role = getRole(currentUser);
+  const clientId = normalizeClientId(evaluation?.clientId || evaluation?.platformId);
+  return clientId === DEFAULT_CLIENT_ID && ["admin", "analista", "supervisor", "coordinador"].includes(role);
+}
+
+export function completeAutomaticFeedback(record, currentUser, completedAt = nowIso()) {
+  if (!record?.automaticFromEvaluation) throw new Error("Solo los feedbacks automaticos admiten esta gestion.");
+  if (getAutomaticFeedbackFlowStatus(record) !== "advisor_accepted") {
+    throw new Error("El asesor debe registrar y aceptar su compromiso antes de finalizar el feedback.");
+  }
+  return {
+    ...record,
+    managementStatus: "feedback_completed",
+    status: "feedback_completed",
+    estado: "feedback_completed",
+    managedAt: completedAt,
+    managedBy: String(currentUser?.usuario || "").trim(),
+    managedByName: String(currentUser?.nombre || currentUser?.usuario || "").trim()
+  };
+}
+
 export function applyAutomaticFeedbackSla(records, nowMs = Date.now()) {
   let changed = false;
   const nextRecords = (Array.isArray(records) ? records : []).map(record => {
-    if (!record?.automaticFromEvaluation || String(record?.managementStatus || "") !== "pending") return record;
+    const flowStatus = getAutomaticFeedbackFlowStatus(record);
+    if (!record?.automaticFromEvaluation || !["pending_feedback", "advisor_accepted"].includes(flowStatus)) return record;
     const createdMs = new Date(record.createdAt || record.feedbackDate || 0).getTime();
     if (!Number.isFinite(createdMs) || nowMs - createdMs < 24 * 60 * 60 * 1000) return record;
     changed = true;
@@ -525,6 +563,7 @@ export function applyAutomaticFeedbackSla(records, nowMs = Date.now()) {
 
 export function buildAutomaticFeedbackRecord({ evaluation, currentUser, role, clientId, evaluationId, existing = null, now, id }) {
   const assessor = String(evaluation?.asesorNombre || "").trim().toUpperCase();
+  const flowStatus = existing ? getAutomaticFeedbackFlowStatus(existing) : "pending_feedback";
   return {
     ...(existing || {}),
     id: existing?.id || id,
@@ -554,9 +593,9 @@ export function buildAutomaticFeedbackRecord({ evaluation, currentUser, role, cl
     feedbackText: String(evaluation?.oportunidadMejoraGeneral || evaluation?.oportunidadMejora || evaluation?.observacionGeneral || "").trim(),
     compromisoMejora: String(evaluation?.compromisoMejora || "").trim(),
     feedbackDate: existing?.feedbackDate || evaluation?.fechaEvaluacion || now,
-    managementStatus: existing?.managementStatus || "pending",
-    status: existing?.status || "pending",
-    estado: existing?.estado || "pending",
+    managementStatus: flowStatus,
+    status: flowStatus,
+    estado: flowStatus,
     createdAt: existing?.createdAt || now,
     updatedAt: now,
     updatedBy: String(currentUser.usuario || "").trim()
@@ -566,7 +605,7 @@ export function buildAutomaticFeedbackRecord({ evaluation, currentUser, role, cl
 async function ensureAutomaticFeedbackForEvaluation(evaluation, currentUser) {
   const role = getRole(currentUser);
   const clientId = normalizeClientId(evaluation?.clientId || evaluation?.platformId);
-  if (clientId !== DEFAULT_CLIENT_ID || !["analista", "supervisor", "coordinador"].includes(role)) return null;
+  if (!shouldCreateAutomaticFeedback(evaluation, currentUser)) return null;
 
   const evaluationId = normalizeId(evaluation?.idEvaluacion || evaluation?.id);
   if (!evaluationId) return null;
@@ -3347,7 +3386,7 @@ export const gasHandlers = {
     const index = records.findIndex(record => Number(record?.id) === feedbackId);
     if (index < 0) throw new Error("No se encontro el feedback solicitado.");
 
-    const record = { ...records[index] };
+    let record = { ...records[index] };
     const action = String(payload.action || "").trim();
     const validActions = ["add_message", "submit_response", "accept_feedback", "reject_feedback", "submit_response_and_accept", "mark_viewed", "set_follow_up", "close_feedback", "mark_realized"];
     if (!validActions.includes(action)) throw new Error("La accion de actualizacion no es valida.");
@@ -3372,16 +3411,13 @@ export const gasHandlers = {
 
     if (action === "mark_realized") {
       if (!record.automaticFromEvaluation) throw new Error("Solo los feedbacks automaticos admiten esta gestion.");
+      if (!["admin", "analista", "supervisor", "coordinador"].includes(role)) {
+        throw new Error("No tienes permisos para finalizar este feedback.");
+      }
       if (role !== "admin" && !isFeedbackOwner(record, currentUser)) {
         throw new Error("Solo el evaluador puede gestionar este feedback.");
       }
-      if (record.managementStatus !== "pending") throw new Error("Este feedback ya fue gestionado o cerrado por SLA.");
-      record.managementStatus = "realized";
-      record.status = "realized";
-      record.estado = "realized";
-      record.managedAt = nowIso();
-      record.managedBy = String(currentUser.usuario || "").trim();
-      record.managedByName = String(currentUser.nombre || currentUser.usuario || "").trim();
+      record = completeAutomaticFeedback(record, currentUser);
     }
 
     if (action === "mark_viewed") {
@@ -3409,6 +3445,9 @@ export const gasHandlers = {
 
     if (action === "accept_feedback" || action === "reject_feedback" || action === "submit_response_and_accept") {
       if (!actorIsAdvisor) throw new Error("Solo el asesor puede validar el feedback.");
+      if (record.automaticFromEvaluation && getAutomaticFeedbackFlowStatus(record) !== "pending_feedback") {
+        throw new Error("Este feedback ya no esta pendiente de aceptacion por el asesor.");
+      }
       const responseText = String(payload.responseText || payload.messageText || "").trim();
       if (!responseText) throw new Error("Para validar el feedback debes dejar un comentario.");
       if (isFeedbackAdvisorValidated(record) && record.estado !== "viewed" && record.estado !== "pending" && record.estado !== "in_follow_up") {
@@ -3438,6 +3477,10 @@ export const gasHandlers = {
       record.comentarioAsesor = responseText;
       record.estado = decision === "accepted" ? "advisor_accepted" : "advisor_rejected";
       record.status = record.estado;
+      if (record.automaticFromEvaluation && decision === "accepted") {
+        record.managementStatus = "advisor_accepted";
+        record.compromisoMejora = responseText;
+      }
     }
 
     if (action === "set_follow_up") {

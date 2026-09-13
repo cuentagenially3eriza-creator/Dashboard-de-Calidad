@@ -2441,14 +2441,16 @@ const COMMUNICATION_PRIORITIES = ["Alta","Media","Baja"];
 const COMMUNICATION_STATES = ["Borrador","Publicado","Archivado"];
 const FEEDBACK_STATUS_LABEL = {
   pending: "Pendiente",
+  pending_feedback: "Pendiente de feedback",
   pending_advisor: "Pendiente",
   viewed: "Visualizado",
   accepted: "Aceptado",
   rejected: "No aceptado",
-  advisor_accepted: "Validado por asesor",
+  advisor_accepted: "Aceptado por asesor",
   advisor_rejected: "No aceptado por asesor",
   in_follow_up: "En seguimiento",
   realized: "Realizado",
+  feedback_completed: "Feedback terminado",
   closed_unmanaged: "Cerrado sin gestion",
   closed: "Cerrado",
   unassigned: "Sin perfil asignado",
@@ -2458,14 +2460,16 @@ const FEEDBACK_STATUS_LABEL = {
 function getFeedbackStatusTheme(status){
   const map = {
     pending: {label:"Pendiente",color:THEME.primary,bg:"rgba(29,43,255,0.12)",border:"rgba(29,43,255,0.32)"},
+    pending_feedback: {label:"Pendiente de feedback",color:THEME.primary,bg:"rgba(29,43,255,0.12)",border:"rgba(29,43,255,0.32)"},
     pending_advisor: {label:"Pendiente",color:THEME.primary,bg:"rgba(29,43,255,0.12)",border:"rgba(29,43,255,0.32)"},
     viewed: {label:"Visualizado",color:"#38BDF8",bg:"rgba(56,189,248,0.12)",border:"rgba(56,189,248,0.32)"},
     accepted: {label:"Aceptado",color:"#19C37D",bg:"rgba(25,195,125,0.12)",border:"rgba(25,195,125,0.30)"},
     rejected: {label:"No aceptado",color:"#FF6B7A",bg:"rgba(255,77,90,0.12)",border:"rgba(255,77,90,0.30)"},
-    advisor_accepted: {label:"Validado por asesor",color:"#19C37D",bg:"rgba(25,195,125,0.12)",border:"rgba(25,195,125,0.30)"},
+    advisor_accepted: {label:"Aceptado por asesor",color:"#19C37D",bg:"rgba(25,195,125,0.12)",border:"rgba(25,195,125,0.30)"},
     advisor_rejected: {label:"No aceptado por asesor",color:"#FF6B7A",bg:"rgba(255,77,90,0.12)",border:"rgba(255,77,90,0.30)"},
     in_follow_up: {label:"En seguimiento",color:"#F59E0B",bg:"rgba(245,158,11,0.12)",border:"rgba(245,158,11,0.30)"},
     realized: {label:"Realizado",color:"#19C37D",bg:"rgba(25,195,125,0.12)",border:"rgba(25,195,125,0.30)"},
+    feedback_completed: {label:"Feedback terminado",color:"#19C37D",bg:"rgba(25,195,125,0.12)",border:"rgba(25,195,125,0.30)"},
     closed_unmanaged: {label:"Cerrado sin gestion",color:"#FF6B7A",bg:"rgba(255,107,122,0.12)",border:"rgba(255,107,122,0.30)"},
     closed: {label:"Cerrado",color:"#A6A0B8",bg:"rgba(166,160,184,0.12)",border:"rgba(166,160,184,0.26)"},
     unassigned: {label:"Sin perfil asignado",color:THEME.accent,bg:"rgba(230,0,168,0.12)",border:"rgba(230,0,168,0.30)"},
@@ -5688,10 +5692,10 @@ function FeedbackCenter({feedbackRecords,statisticalRecords,evaluationRecords,on
       const validationStatus = String(record?.advisorValidationStatus || "").trim();
       return ["rejected","advisor_rejected"].includes(status) || validationStatus === "rejected";
     };
-    const closed = allRecords.filter(record => ["closed","realized","closed_unmanaged"].includes(String(record?.managementStatus || record?.estado || record?.status || ""))).length;
+    const closed = allRecords.filter(record => ["closed","realized","feedback_completed","closed_unmanaged"].includes(String(record?.managementStatus || record?.estado || record?.status || ""))).length;
     const pendingSupervisor = allRecords.filter(record => !record?.automaticFromEvaluation && isAdvisorValidated(record) && String(record?.estado || record?.status || "") !== "closed").length;
     const pendingAdvisor = allRecords.filter(record => record?.automaticFromEvaluation
-      ? String(record?.managementStatus || "pending") === "pending"
+      ? ["pending","pending_feedback","advisor_accepted"].includes(String(record?.managementStatus || "pending"))
       : !isAdvisorValidated(record)).length;
     const accepted = allRecords.filter(isAdvisorAccepted).length;
     const rejected = allRecords.filter(isAdvisorRejected).length;
@@ -5792,12 +5796,16 @@ function FeedbackCenter({feedbackRecords,statisticalRecords,evaluationRecords,on
       h("div",{style:{fontSize:11,color:"#8b92a5",marginBottom:16}},filteredRecords.length," registros encontrados"),
       h("div",{style:{overflowX:"auto"}},
         h("table",{style:{width:"100%",borderCollapse:"collapse"}},
-          h("thead",null,h("tr",null,["Asesor","Evaluador","Tipo de gestion","Clasificacion / Refuerzo","Resultado","Gestion","Creacion","Gestionado",...(role === "admin" ? ["SLA"] : []),"Ficha","Acciones"].map(header=>h("th",{key:header,style:{textAlign:"left",fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",padding:"12px 16px",borderBottom:"1px solid rgba(255,255,255,0.05)"}},header)))),
+          h("thead",null,h("tr",null,["Asesor","Evaluador","Tipo de gestion","Clasificacion / Refuerzo","Resultado","Gestion","Creacion","Gestionado",...(role === "admin" ? ["SLA"] : []),"Acciones"].map(header=>h("th",{key:header,style:{textAlign:"left",fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.1em",padding:"12px 16px",borderBottom:"1px solid rgba(255,255,255,0.05)"}},header)))),
           h("tbody",null,
             filteredRecords.map(record=>{
               const statistical = isStatisticalFeedbackRecord(record);
               const evaluation = getLinkedEvaluation(evaluationRecords, statistical ? record.sourceFeedbackId : record.id);
-              const effectiveStatus = record.managementStatus || record.estado || record.status || "pending";
+              const rawManagementStatus = record.managementStatus || record.estado || record.status || "pending_feedback";
+              const effectiveStatus = record.automaticFromEvaluation && rawManagementStatus === "pending" ? "pending_feedback"
+                : record.automaticFromEvaluation && rawManagementStatus === "realized" ? "feedback_completed"
+                : record.automaticFromEvaluation && (record.estado === "advisor_accepted" || record.advisorValidationStatus === "accepted" || record.advisorAcceptedAt) && !["feedback_completed","closed_unmanaged"].includes(rawManagementStatus) ? "advisor_accepted"
+                : rawManagementStatus;
               const statusTheme = getFeedbackStatusTheme(effectiveStatus);
               const management = record.tipoGestion || record.feedbackCategory || "-";
               const classification = record.clasificacionFeedback || record.tipoRefuerzo || "-";
@@ -5816,11 +5824,10 @@ function FeedbackCenter({feedbackRecords,statisticalRecords,evaluationRecords,on
                 h("td",{style:{padding:"14px 16px",fontSize:12,color:"#8b92a5"}},formatFeedbackDate(record.createdAt || record.feedbackDate)),
                 h("td",{style:{padding:"14px 16px",fontSize:12,color:"#8b92a5"}},record.managedAt ? formatFeedbackDate(record.managedAt) : record.closedWithoutManagementAt ? formatFeedbackDate(record.closedWithoutManagementAt) : "-"),
                 role === "admin" && h("td",{style:{padding:"14px 16px",fontSize:12,color:elapsedMs > 86400000 ? "#FF6B7A" : "#19C37D",fontWeight:700}},slaLabel),
-                h("td",{style:{padding:"14px 16px",fontSize:11,color:evaluation ? "#19C37D" : "#8b92a5",fontWeight:700}},evaluation ? `Ficha ${evaluation.estadoEvaluacion === "closed" ? "cerrada" : "activa"}` : "Sin ficha"),
                 h("td",{style:{padding:"14px 16px"}},
                   h("div",{style:{display:"flex",flexWrap:"wrap",gap:8}},
                     h("button",{style:{...BTN("s"),padding:"8px 12px"},onClick:()=>onOpenPreview(record)},"VER FICHA"),
-                    !statistical && canEditRecord && record.automaticFromEvaluation && effectiveStatus === "pending" && h("button",{style:{...BTN("pink"),padding:"8px 12px"},onClick:()=>onMarkFeedbackRealized(record)},"MARCAR REALIZADO"),
+                    !statistical && canEditRecord && record.automaticFromEvaluation && effectiveStatus === "advisor_accepted" && h("button",{style:{...BTN("pink"),padding:"8px 12px"},onClick:()=>onMarkFeedbackRealized(record)},"MARCAR REALIZADO"),
                     !statistical && canEditRecord && !record.automaticFromEvaluation && h("button",{style:{...BTN("out"),padding:"8px 12px"},onClick:()=>onEditFeedback(record)},"EDITAR"),
                     !statistical && role === "admin" && h("button",{style:{...BTN("out"),padding:"8px 12px",color:"#FF6B7A",border:"1px solid rgba(255,77,90,0.35)"},onClick:()=>onDeleteFeedback(record)},"ELIMINAR"),
                     !statistical && canFillEvaluation(currentUser) && h("button",{style:{...BTN("out"),padding:"8px 12px"},onClick:()=>onOpenEvaluation(record)},evaluation ? "EDITAR EVAL." : "REGISTRAR EVAL.")
@@ -5960,7 +5967,10 @@ function AdvisorPortal({currentUser,users,staffing,feedbackRecords,evaluationRec
             const statusTheme = getFeedbackStatusTheme(record.estado || record.status || "pending");
             const managementTheme = getFeedbackCategoryTheme(record.tipoGestion || record.feedbackCategory || "Feedback");
             const currentStatus = record.estado || record.status || "pending";
-            const advisorAlreadyValidated = currentStatus !== "in_follow_up" && (["accepted","rejected","advisor_accepted","advisor_rejected","closed"].includes(currentStatus) || !!record.advisorValidatedAt || !!record.advisorValidationStatus);
+            const advisorAlreadyValidated = currentStatus !== "in_follow_up" && (["accepted","rejected","advisor_accepted","advisor_rejected","feedback_completed","realized","closed_unmanaged","closed"].includes(currentStatus) || !!record.advisorValidatedAt || !!record.advisorValidationStatus);
+            const canAdvisorValidate = record.automaticFromEvaluation
+              ? ["pending","pending_feedback","viewed"].includes(currentStatus) && !advisorAlreadyValidated
+              : !advisorAlreadyValidated;
             return h("div",{key:record.id,style:{...CARD,borderTop: `4px solid ${managementTheme.color}`,marginBottom:0}},
               h("div",{style:{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12,marginBottom:12}},
                 h("div",null,
@@ -5980,8 +5990,8 @@ function AdvisorPortal({currentUser,users,staffing,feedbackRecords,evaluationRec
               ),
               h(FeedbackThread,{record,currentUser,messageDraft:responseDrafts[record.id] || "",onDraftChange:value=>setResponseDrafts(prev=>({...prev,[record.id]:value})),onSendMessage:()=>runFeedbackAction(record,"add_message"),disabled:updatingId===record.id,sending:updatingId===record.id}),
               h("div",{style:{display:"flex",justifyContent:"flex-end",gap:10,flexWrap:"wrap"}},
-                !advisorAlreadyValidated && h("button",{style:{...BTN("out"),padding:"10px 14px",color:"#FF6B7A",border:"1px solid rgba(255,77,90,0.35)"},disabled:updatingId===record.id,onClick:()=>runFeedbackAction(record,"reject_feedback")},"NO ACEPTO"),
-                !advisorAlreadyValidated && h("button",{style:{...BTN("pink"),padding:"10px 14px"},disabled:updatingId===record.id,onClick:()=>runFeedbackAction(record,"accept_feedback")},"ACEPTAR")
+                canAdvisorValidate && h("button",{style:{...BTN("out"),padding:"10px 14px",color:"#FF6B7A",border:"1px solid rgba(255,77,90,0.35)"},disabled:updatingId===record.id,onClick:()=>runFeedbackAction(record,"reject_feedback")},"NO ACEPTO"),
+                canAdvisorValidate && h("button",{style:{...BTN("pink"),padding:"10px 14px"},disabled:updatingId===record.id,onClick:()=>runFeedbackAction(record,"accept_feedback")},"ACEPTAR")
               )
             );
           })
@@ -8430,7 +8440,7 @@ function App(){
     try {
       await updateFeedbackEntry({id:record.id,action:"mark_realized",currentUser,actorUser:currentUser.usuario,actorName:currentUser.nombre,actorRole:ROL_LABEL[currentUser.rol] || currentUser.rol});
       await reloadFeedbackRecords();
-      notify("s","Feedback marcado como realizado.");
+      notify("s","Feedback terminado correctamente.");
       return true;
     } catch (error) {
       notify("e",error?.message || "No se pudo actualizar la gestion del feedback.");
