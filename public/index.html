@@ -8222,6 +8222,7 @@ function App(){
     const saved = await saveEvaluationEntry({...payload,clientId:currentPlatformId,platformId:currentPlatformId,clientName:currentPlatformName,platformName:currentPlatformName});
     if (saved) {
       upsertEvaluationInState(saved);
+      await reloadFeedbackRecords();
     }
     return saved;
   };
@@ -8230,6 +8231,7 @@ function App(){
     const saved = await updateEvaluationEntry({...payload,clientId:payload?.clientId || currentPlatformId,platformId:payload?.platformId || currentPlatformId,clientName:payload?.clientName || currentPlatformName,platformName:payload?.platformName || currentPlatformName});
     if (saved) {
       upsertEvaluationInState(saved);
+      await reloadFeedbackRecords();
     }
     return saved;
   };
