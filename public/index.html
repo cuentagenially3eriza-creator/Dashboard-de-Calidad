@@ -2499,7 +2499,7 @@ function hasStaffingAccess(user){
 }
 
 function canViewTeamFeedback(user){
-  return ["admin","analista","formador","supervisor","coordinador"].includes(String(user?.rol||"").trim().toLowerCase());
+  return ["admin","analista","monitor","formador","supervisor","coordinador"].includes(String(user?.rol||"").trim().toLowerCase());
 }
 
 function canImportData(user){
@@ -5648,12 +5648,13 @@ function FeedbackCenter({feedbackRecords,statisticalRecords,evaluationRecords,on
   const [filters,setFilters] = useState({dateFrom:"",dateTo:"",advisor:"all",author:"all",management:"all",classification:"all",status:"all",search:""});
   const [volumeModalOpen,setVolumeModalOpen] = useState(false);
   const role = String(currentUser?.rol||"").trim().toLowerCase();
+  const feedbackRole = role === "monitor" ? "analista" : role;
 
   const visibleRecords = useMemo(() => {
     const operational = feedbackRecords || [];
-    const roleVisible = ["admin","analista"].includes(role) ? [...operational, ...(statisticalRecords || [])] : operational;
+    const roleVisible = ["admin","analista"].includes(feedbackRole) ? [...operational, ...(statisticalRecords || [])] : operational;
     return roleVisible.filter(record => !isRecordForCeasedAdvisor(record, staffing));
-  }, [feedbackRecords,statisticalRecords,role,staffing]);
+  }, [feedbackRecords,statisticalRecords,feedbackRole,staffing]);
 
   const authors = useMemo(() => {
     const qualityUsers = (users || []).filter(user => ["analista","monitor"].includes(String(user?.rol || user?.role || "").trim().toLowerCase()) && !isInactiveProfileStatus(user?.estado));
@@ -5802,14 +5803,14 @@ function FeedbackCenter({feedbackRecords,statisticalRecords,evaluationRecords,on
               const statistical = isStatisticalFeedbackRecord(record);
               const evaluation = getLinkedEvaluation(evaluationRecords, statistical ? record.sourceFeedbackId : record.id);
               const rawManagementStatus = record.managementStatus || record.estado || record.status || "pending_feedback";
-              const effectiveStatus = record.automaticFromEvaluation && rawManagementStatus === "pending" ? "pending_feedback"
-                : record.automaticFromEvaluation && rawManagementStatus === "realized" ? "feedback_completed"
-                : record.automaticFromEvaluation && (record.estado === "advisor_accepted" || record.advisorValidationStatus === "accepted" || record.advisorAcceptedAt) && !["feedback_completed","closed_unmanaged"].includes(rawManagementStatus) ? "advisor_accepted"
+              const effectiveStatus = record.automaticFromEvaluation && rawManagementStatus === "realized" ? "feedback_completed"
+                : record.automaticFromEvaluation && (record.estado === "advisor_accepted" || record.advisorValidationStatus === "accepted" || record.advisorAcceptedAt) && !["realized","feedback_completed","closed_unmanaged"].includes(rawManagementStatus) ? "advisor_accepted"
+                : record.automaticFromEvaluation && rawManagementStatus === "pending" ? "pending_feedback"
                 : rawManagementStatus;
               const statusTheme = getFeedbackStatusTheme(effectiveStatus);
               const management = record.tipoGestion || record.feedbackCategory || "-";
               const classification = record.clasificacionFeedback || record.tipoRefuerzo || "-";
-              const canEditRecord = ["admin","analista"].includes(role) || (["supervisor","coordinador"].includes(role) && isRecordOwnedByCurrentUser(record,currentUser));
+              const canEditRecord = ["admin","analista"].includes(feedbackRole) || (["supervisor","coordinador"].includes(feedbackRole) && isRecordOwnedByCurrentUser(record,currentUser));
               const createdMs = getDateMs(record.createdAt || record.feedbackDate);
               const managedMs = getDateMs(record.managedAt || record.closedWithoutManagementAt);
               const elapsedMs = createdMs && managedMs ? Math.max(0, managedMs-createdMs) : (createdMs ? Math.max(0,Date.now()-createdMs) : 0);
@@ -5828,7 +5829,7 @@ function FeedbackCenter({feedbackRecords,statisticalRecords,evaluationRecords,on
                   h("div",{style:{display:"flex",flexWrap:"wrap",gap:8}},
                     h("button",{style:{...BTN("s"),padding:"8px 12px"},onClick:()=>onOpenPreview(record)},"VER FICHA"),
                     !statistical && canEditRecord && record.automaticFromEvaluation && effectiveStatus === "advisor_accepted" && h("button",{style:{...BTN("pink"),padding:"8px 12px"},onClick:()=>onMarkFeedbackRealized(record)},"MARCAR REALIZADO"),
-                    !statistical && canEditRecord && !record.automaticFromEvaluation && h("button",{style:{...BTN("out"),padding:"8px 12px"},onClick:()=>onEditFeedback(record)},"EDITAR"),
+                    !statistical && canEditRecord && (!record.automaticFromEvaluation || feedbackRole === "admin") && h("button",{style:{...BTN("out"),padding:"8px 12px"},onClick:()=>onEditFeedback(record)},"EDITAR"),
                     !statistical && role === "admin" && h("button",{style:{...BTN("out"),padding:"8px 12px",color:"#FF6B7A",border:"1px solid rgba(255,77,90,0.35)"},onClick:()=>onDeleteFeedback(record)},"ELIMINAR"),
                     !statistical && canFillEvaluation(currentUser) && h("button",{style:{...BTN("out"),padding:"8px 12px"},onClick:()=>onOpenEvaluation(record)},evaluation ? "EDITAR EVAL." : "REGISTRAR EVAL.")
                   )
