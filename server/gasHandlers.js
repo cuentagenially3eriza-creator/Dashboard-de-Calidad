@@ -525,27 +525,14 @@ export function shouldCreateAutomaticFeedback(evaluation, currentUser) {
   return clientId === DEFAULT_CLIENT_ID && ["admin", "analista", "supervisor", "coordinador"].includes(role);
 }
 
-export function isAutomaticFeedbackBlockedForEvaluation(evaluation, currentUser, staffing = []) {
-  const role = getRole(currentUser);
-  if (!["analista", "supervisor", "coordinador"].includes(role)) return false;
-  if (normalizeClientId(evaluation?.clientId || evaluation?.platformId) !== DEFAULT_CLIENT_ID) return false;
-
-  const advisorIds = [evaluation?.asesorId, evaluation?.advisorUser]
-    .map(normalizeText)
-    .filter(Boolean);
-  const advisorName = normalizeText(evaluation?.asesorNombre || evaluation?.assessor);
-  const advisorDni = normalizeText(evaluation?.dni || evaluation?.asesorDni || evaluation?.documentNumber);
-  const matches = (Array.isArray(staffing) ? staffing : []).filter(item => {
-    if (!isRecordVisibleForClient(item, DEFAULT_CLIENT_ID)) return false;
-    const staffingIds = [item?.id, item?.usuarioAsignado, item?.advisorUser]
-      .map(normalizeText)
-      .filter(Boolean);
-    if (advisorIds.length && staffingIds.some(id => advisorIds.includes(id))) return true;
-    const staffingDni = normalizeText(item?.dni || item?.nroDocumento || item?.numeroDocumento || item?.documentNumber);
-    if (advisorDni && staffingDni && advisorDni === staffingDni) return true;
-    return Boolean(advisorName && normalizeText(item?.asesor || item?.asesorNombre || item?.assessor) === advisorName);
+export function isAutomaticFeedbackBlockedForUser(currentUser, users = []) {
+  const userKey = normalizeText(currentUser?.usuario || currentUser?.user || currentUser?.username);
+  if (!userKey) return false;
+  return (Array.isArray(users) ? users : []).some(user => {
+    const candidateKey = normalizeText(user?.usuario || user?.user || user?.username);
+    if (!candidateKey || candidateKey !== userKey) return false;
+    return user.feedbacksBlocked === true || ["true", "1", "si", "yes"].includes(normalizeText(user.feedbacksBlocked));
   });
-  return matches.some(item => item.feedbacksBlocked === true || ["true", "1", "si", "yes"].includes(normalizeText(item.feedbacksBlocked)));
 }
 
 export function completeAutomaticFeedback(record, currentUser, completedAt = nowIso()) {
@@ -629,8 +616,8 @@ async function ensureAutomaticFeedbackForEvaluation(evaluation, currentUser) {
   const role = getRole(currentUser);
   const clientId = normalizeClientId(evaluation?.clientId || evaluation?.platformId);
   if (!shouldCreateAutomaticFeedback(evaluation, currentUser)) return null;
-  const staffing = await readCachedSharedJson("staffing", []);
-  if (isAutomaticFeedbackBlockedForEvaluation(evaluation, currentUser, staffing)) return null;
+  const users = await readCachedSharedJson("users_v1", []);
+  if (isAutomaticFeedbackBlockedForUser(currentUser, users)) return null;
 
   const evaluationId = normalizeId(evaluation?.idEvaluacion || evaluation?.id);
   if (!evaluationId) return null;

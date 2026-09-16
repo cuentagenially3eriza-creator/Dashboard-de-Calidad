@@ -240,6 +240,7 @@ function normalizeUserRecord(user) {
     mustChangePassword: normalizeBooleanFlag(user.mustChangePassword || user.forcePasswordChange || user.requirePasswordChange),
     passwordChangedAt: passwordChangedAt ? String(passwordChangedAt).trim() : "",
     staffingAccess: normalizeBooleanFlag(user.staffingAccess),
+    feedbacksBlocked: normalizeBooleanFlag(user.feedbacksBlocked),
     platformAccess: getUserPlatformAccess(user)
   };
 }
@@ -275,6 +276,7 @@ function normalizeUsersList(users) {
       mustChangePassword: normalized.mustChangePassword,
       passwordChangedAt: normalized.passwordChangedAt || existing.passwordChangedAt || "",
       staffingAccess: Boolean(existing.staffingAccess || normalized.staffingAccess),
+      feedbacksBlocked: Boolean(existing.feedbacksBlocked || normalized.feedbacksBlocked),
       platformAccess: Array.from(new Set([...getUserPlatformAccess(existing), ...getUserPlatformAccess(normalized)]))
     });
   });
@@ -289,6 +291,7 @@ function mergeUserCandidatesForLogin(candidates) {
   return normalizeUserRecord({
     ...base,
     staffingAccess: list.some(item => normalizeBooleanFlag(item?.staffingAccess)),
+    feedbacksBlocked: list.some(item => normalizeBooleanFlag(item?.feedbacksBlocked)),
     platformAccess: platformAccess.length ? platformAccess : getUserPlatformAccess(base)
   });
 }
@@ -316,7 +319,8 @@ function normalizeCentralUsersList(users) {
       estado: isInactiveProfileStatus(existing.estado) || isInactiveProfileStatus(user.estado) ? "cesado" : (user.estado || existing.estado || "activo"),
       mustChangePassword: Boolean(existing.mustChangePassword || user.mustChangePassword),
       passwordChangedAt: user.passwordChangedAt || existing.passwordChangedAt || "",
-      staffingAccess: Boolean(existing.staffingAccess || user.staffingAccess)
+      staffingAccess: Boolean(existing.staffingAccess || user.staffingAccess),
+      feedbacksBlocked: Boolean(existing.feedbacksBlocked || user.feedbacksBlocked)
     });
   });
   return [...byLogin.values()];
@@ -3017,7 +3021,7 @@ function AuthorizedPlatformSelector({currentUser,platforms,onSelect,onOpenAdminM
   );
 }
 
-function GlobalPlatformManagement({currentUser,users,staffing,setStaffing,notify,onAddUser,onDeleteUser,onUpdateUserStatus,onResetPassword,onUpdateUserAccess,onUpdateUserStaffingAccess,onSaveStaffingForPlatform,onBack,onLogout}){
+function GlobalPlatformManagement({currentUser,users,staffing,setStaffing,notify,onAddUser,onDeleteUser,onUpdateUserStatus,onResetPassword,onUpdateUserAccess,onUpdateUserStaffingAccess,onUpdateUserFeedbackBlock,onSaveStaffingForPlatform,onBack,onLogout}){
   const isAdmin = canManageUsers(currentUser);
   const staffingPlatforms = useMemo(() => isAdmin ? PLATFORM_OPTIONS : getUserPlatformAccess(currentUser).map(getPlatformById).filter(Boolean), [currentUser,isAdmin]);
   const [tab,setTab] = useState(isAdmin ? "users" : "staffing");
@@ -3046,7 +3050,7 @@ function GlobalPlatformManagement({currentUser,users,staffing,setStaffing,notify
           isAdmin && h("button",{style:{...BTN(tab==="users"?"p":"out"),padding:"13px 18px"},onClick:()=>setTab("users")},I("shield",14,tab==="users"?"#fff":THEME.primary),"USUARIOS"),
           h("button",{style:{...BTN(tab==="staffing"?"p":"out"),padding:"13px 18px"},onClick:()=>setTab("staffing")},I("users",14,tab==="staffing"?"#fff":THEME.primary),"DOTACION")
         ),
-        isAdmin && tab === "users" && h(UserManager,{users,onAddUser,onDeleteUser,onUpdateUserStatus,onResetPassword,onUpdateUserAccess,onUpdateUserStaffingAccess,notify,staffing,currentPlatformId:DEFAULT_PLATFORM_ID,globalMode:true}),
+        isAdmin && tab === "users" && h(UserManager,{users,onAddUser,onDeleteUser,onUpdateUserStatus,onResetPassword,onUpdateUserAccess,onUpdateUserStaffingAccess,onUpdateUserFeedbackBlock,notify,staffing,currentPlatformId:DEFAULT_PLATFORM_ID,globalMode:true}),
         tab === "staffing" && h(Fragment,null,
           h("div",{style:{...CARD,borderTop:`4px solid ${THEME.primary}`,marginBottom:22}},
             h("div",{style:{fontSize:11,fontWeight:800,color:"#8b92a5",textTransform:"uppercase",letterSpacing:"0.15em",marginBottom:10}},"Plataforma de dotacion"),
@@ -3277,7 +3281,7 @@ function PasswordChangeModal({currentUser,onChangePassword}) {
   );
 }
 
-function UserManager({users,onAddUser,onDeleteUser,onUpdateUserStatus,onResetPassword,onUpdateUserAccess,onUpdateUserStaffingAccess,notify,staffing,currentPlatformId,globalMode}){
+function UserManager({users,onAddUser,onDeleteUser,onUpdateUserStatus,onResetPassword,onUpdateUserAccess,onUpdateUserStaffingAccess,onUpdateUserFeedbackBlock,notify,staffing,currentPlatformId,globalMode}){
   const defaultPlatformAccess = [normalizeClientId(currentPlatformId || DEFAULT_PLATFORM_ID)];
   const createEmptyUserForm = () => ({nombre:"",usuario:"",rol:"analista",assessorName:"",correo:"",area:"",campaign:"",supervisorId:"",estado:"activo",platformAccess:defaultPlatformAccess});
   const [form,setForm] = useState(createEmptyUserForm);
@@ -3376,6 +3380,14 @@ function UserManager({users,onAddUser,onDeleteUser,onUpdateUserStatus,onResetPas
     const ok = await onUpdateUserStaffingAccess?.(user.usuario, nextValue);
     if (ok !== false) {
       notify("s", nextValue ? "Acceso a Dotacion habilitado." : "Acceso a Dotacion retirado.");
+      setOpenMenuUser("");
+    }
+  };
+  const toggleFeedbackBlock = async(user) => {
+    const nextValue = !normalizeBooleanFlag(user?.feedbacksBlocked);
+    const ok = await onUpdateUserFeedbackBlock?.(user.usuario, nextValue);
+    if (ok !== false) {
+      notify("s", nextValue ? "Feedbacks automaticos bloqueados para este usuario." : "Feedbacks automaticos habilitados para este usuario.");
       setOpenMenuUser("");
     }
   };
@@ -3506,6 +3518,7 @@ function UserManager({users,onAddUser,onDeleteUser,onUpdateUserStatus,onResetPas
             openMenuUser === u.usuario && h("div",{style:{position:"absolute",right:0,top:44,zIndex:20,minWidth:190,background:"rgba(9,9,17,0.98)",border:`1px solid ${THEME.border}`,borderRadius:12,padding:8,boxShadow:"0 18px 44px rgba(0,0,0,0.35)"}},
               h("button",{style:{width:"100%",textAlign:"left",background:"transparent",border:0,color:"#dbe4f3",padding:"10px 12px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:800,letterSpacing:"0.08em",fontFamily:THEME.displayFont},onClick:()=>startEditAccess(u)},"EDITAR PLATAFORMAS"),
               h("button",{style:{width:"100%",textAlign:"left",background:normalizeBooleanFlag(u.staffingAccess) ? "rgba(25,195,125,0.10)" : "transparent",border:0,color:normalizeBooleanFlag(u.staffingAccess) ? "#20d489" : "#dbe4f3",padding:"10px 12px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:800,letterSpacing:"0.08em",fontFamily:THEME.displayFont},onClick:()=>toggleStaffingAccess(u)},normalizeBooleanFlag(u.staffingAccess) ? "DOTACION: HABILITADA" : "DOTACION"),
+              h("button",{style:{width:"100%",textAlign:"left",background:normalizeBooleanFlag(u.feedbacksBlocked) ? "rgba(230,0,168,0.10)" : "transparent",border:0,color:normalizeBooleanFlag(u.feedbacksBlocked) ? THEME.accent : "#dbe4f3",padding:"10px 12px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:800,letterSpacing:"0.08em",fontFamily:THEME.displayFont},onClick:()=>toggleFeedbackBlock(u)},normalizeBooleanFlag(u.feedbacksBlocked) ? "DESBLOQUEAR FEEDBACKS" : "BLOQUEAR FEEDBACKS"),
               h("button",{style:{width:"100%",textAlign:"left",background:"transparent",border:0,color:"#dbe4f3",padding:"10px 12px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:800,letterSpacing:"0.08em",fontFamily:THEME.displayFont},onClick:()=>resetPassword(u.usuario)},"RESETEAR CONTRASENA"),
               h("button",{style:{width:"100%",textAlign:"left",background:"rgba(230,0,168,0.08)",border:0,color:THEME.accent,padding:"10px 12px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:800,letterSpacing:"0.08em",fontFamily:THEME.displayFont},onClick:()=>{ setOpenMenuUser(""); remove(u.usuario); }},"ELIMINAR")
             )
@@ -7952,6 +7965,38 @@ function App(){
     return true;
   };
 
+  const actualizarBloqueoFeedbacksUsuario = async(usuario, enabled) => {
+    const normalizedUserKey = normalizeLoginKey(usuario);
+    if (!normalizedUserKey) return false;
+    const latestUsers = await loadUsers({preferBackend:true}).catch(() => users);
+    const normalizedSource = normalizeUsersList(latestUsers && latestUsers.length ? latestUsers : users);
+    if (!normalizedSource.some(user => normalizeLoginKey(user.usuario) === normalizedUserKey)) {
+      notify("e","No se encontro el usuario para actualizar el bloqueo de feedbacks.");
+      return false;
+    }
+    const now = new Date().toISOString();
+    const updated = normalizeUsersList(normalizedSource.map(user => normalizeLoginKey(user.usuario) === normalizedUserKey
+      ? {
+          ...user,
+          feedbacksBlocked:Boolean(enabled),
+          feedbacksBlockedAt:enabled ? now : "",
+          feedbacksBlockedBy:enabled ? String(currentUser?.usuario || "").trim() : "",
+          updatedAt:now
+        }
+      : user
+    ));
+    const saved = await saveUsers(updated);
+    if (saved === false) {
+      notify("e","No se pudo guardar el bloqueo de feedbacks.");
+      return false;
+    }
+    setUsers(updated);
+    if (currentUser?.usuario && normalizeLoginKey(currentUser.usuario) === normalizedUserKey) {
+      setCurrentUser(prev => ({...prev,feedbacksBlocked:Boolean(enabled)}));
+    }
+    return true;
+  };
+
   const cambiarContrasenaActual = async(nuevaContrasena) => {
     if (!currentUser?.usuario) return false;
     const normalizedUserKey = normalizeLoginKey(currentUser.usuario);
@@ -8533,6 +8578,7 @@ function App(){
       onResetPassword:resetearContrasenaUsuario,
       onUpdateUserAccess:actualizarAccesoUsuario,
       onUpdateUserStaffingAccess:actualizarAccesoDotacionUsuario,
+      onUpdateUserFeedbackBlock:actualizarBloqueoFeedbacksUsuario,
       onSaveStaffingForPlatform:guardarDotacionPorPlataforma,
       onBack:()=>setAdminManagementOpen(false),
       onLogout:()=>{setCurrentUser(null);setSelectedPlatform(null);setAdminManagementOpen(false);setView("legend");}
@@ -12936,7 +12982,6 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
   const [form,setForm] = useState({asesor:"",supervisor:"",coordinador:"",antiguedad:"",fechaIngreso:"",tipoGestionRuc:"RUC 10",dni:"",estado:"activo"});
   const [search,setSearch] = useState("");
   const [editingAdvisor,setEditingAdvisor] = useState("");
-  const [openStaffingMenu,setOpenStaffingMenu] = useState("");
   const [editForm,setEditForm] = useState({asesor:"",supervisor:"",coordinador:"",tipoGestionRuc:"RUC 10",dni:"",estado:"activo"});
   const role = String(currentUser?.rol || "").trim().toLowerCase();
   const delegatedStaffingAccess = normalizeBooleanFlag(currentUser?.staffingAccess);
@@ -13131,21 +13176,6 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
     if (!saved) return;
     notify("s", nextStatus === "cesado" ? "Perfil cesado. Historial conservado y acceso bloqueado." : "Perfil activado nuevamente.");
   };
-  const toggleFeedbackBlock = async(item) => {
-    if (!canDeleteRegistry) { notify("e","Solo el Administrador puede bloquear feedbacks."); return; }
-    const nextBlocked = !normalizeBooleanFlag(item?.feedbacksBlocked);
-    const updated = displayedStaffing.map(row => row.asesor === item.asesor ? {
-      ...row,
-      feedbacksBlocked: nextBlocked,
-      feedbacksBlockedAt: nextBlocked ? new Date().toISOString() : "",
-      feedbacksBlockedBy: nextBlocked ? String(currentUser?.usuario || "").trim() : ""
-    } : row);
-    const saved = await savePlatformStaffing(updated);
-    if (saved === false) { notify("e","No se pudo actualizar el bloqueo de feedbacks."); return; }
-    if (typeof setStaffing === "function" && typeof onSaveStaffing !== "function") setStaffing(updated);
-    setOpenStaffingMenu("");
-    notify("s", nextBlocked ? "Feedbacks automaticos bloqueados para esta dotacion." : "Feedbacks automaticos habilitados para esta dotacion.");
-  };
   const remove = async(asesor) => {
     if (!canDeleteRegistry) { notify("e","Solo el Administrador puede eliminar registros de Dotacion."); return; }
     const updated = displayedStaffing.filter(s => s.asesor !== asesor);
@@ -13224,13 +13254,7 @@ function StaffingConfig({staffing,setStaffing,onSaveStaffing,clientId,clientName
                     !managementOnly && isCulqiStaffing && onOpenFeedback && h("button",{style:{...BTN("s"),padding:"8px 12px",...(activeProfile ? {} : blockedButtonStyle)},disabled:!activeProfile,title:activeProfile ? "" : "Perfil cesado: no admite nuevos feedbacks",onClick:() => activeProfile && onOpenFeedback(s.asesor)}, I("send",12,"#fff"), "FEEDBACK"),
                     !managementOnly && onOpenEvaluation && h("button",{style:{...BTN("out"),padding:"8px 12px",...(activeProfile ? {} : blockedButtonStyle)},disabled:!activeProfile,title:activeProfile ? "" : "Perfil cesado: no admite nuevas evaluaciones",onClick:() => activeProfile && onOpenEvaluation(buildEvaluationEntryContext({asesor:s.asesor,supervisor:s.supervisor,coordinador:s.coordinador,antiguedad:s.antiguedad,fechaIngreso:s.fechaIngreso,tipoGestionRuc:s.tipoGestionRuc,estado:s.estado}))}, I("file",12,"#8b92a5"), "EVALUACION"),
                     !managementOnly && onOpenNoTipification && h("button",{style:{...BTN("out"),padding:"8px 12px",...(activeProfile ? {} : blockedButtonStyle)},disabled:!activeProfile,title:activeProfile ? "" : "Perfil cesado: no admite nuevas alertas",onClick:() => activeProfile && onOpenNoTipification(buildNoTipificationEntryContext({asesor:s.asesor,usuarioAsignado:s.usuarioAsignado,supervisor:s.supervisor,coordinador:s.coordinador,antiguedad:s.antiguedad,fechaIngreso:s.fechaIngreso,tipoGestionRuc:s.tipoGestionRuc,estado:s.estado}))}, I("alert",12,"#8b92a5"), "NO TIPIFICACION"),
-                    canDeleteRegistry && h("div",{style:{position:"relative"}},
-                      h("button",{style:{width:36,height:34,borderRadius:8,border:`1px solid ${THEME.border}`,background:"rgba(255,255,255,0.03)",color:"#fff",cursor:"pointer",fontSize:20,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"},title:"Mas acciones",onClick:()=>setOpenStaffingMenu(prev=>prev===s.asesor ? "" : s.asesor)},"⋮"),
-                      openStaffingMenu === s.asesor && h("div",{style:{position:"absolute",right:0,top:40,zIndex:30,minWidth:210,background:"rgba(9,9,17,0.98)",border:`1px solid ${THEME.border}`,borderRadius:12,padding:8,boxShadow:"0 18px 44px rgba(0,0,0,0.35)"}},
-                        h("button",{style:{width:"100%",textAlign:"left",background:normalizeBooleanFlag(s.feedbacksBlocked) ? "rgba(230,0,168,0.10)" : "transparent",border:0,color:normalizeBooleanFlag(s.feedbacksBlocked) ? THEME.accent : "#dbe4f3",padding:"10px 12px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:800,letterSpacing:"0.05em",fontFamily:THEME.displayFont},onClick:()=>toggleFeedbackBlock(s)},normalizeBooleanFlag(s.feedbacksBlocked) ? "DESBLOQUEAR FEEDBACKS" : "BLOQUEAR FEEDBACKS"),
-                        h("button",{style:{width:"100%",textAlign:"left",background:"transparent",border:0,color:THEME.accent,padding:"10px 12px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:800,letterSpacing:"0.05em",fontFamily:THEME.displayFont},onClick:()=>{setOpenStaffingMenu("");remove(s.asesor);}},"ELIMINAR")
-                      )
-                    )
+                    canDeleteRegistry && h("button",{style:{background:"rgba(230,0,168,0.10)",border:"1px solid rgba(230,0,168,0.2)",borderRadius:8,padding:"8px",cursor:"pointer"},onClick:() => remove(s.asesor)}, I("trash",14,THEME.accent))
                   )
                 )
               );

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyAutomaticFeedbackSla, buildAutomaticFeedbackRecord, buildFeedbackVolumeRecords, completeAutomaticFeedback, gasHandlers, getAutomaticFeedbackFlowStatus, isAutomaticFeedbackBlockedForEvaluation, shouldCreateAutomaticFeedback } from "../server/gasHandlers.js";
+import { applyAutomaticFeedbackSla, buildAutomaticFeedbackRecord, buildFeedbackVolumeRecords, completeAutomaticFeedback, gasHandlers, getAutomaticFeedbackFlowStatus, isAutomaticFeedbackBlockedForUser, shouldCreateAutomaticFeedback } from "../server/gasHandlers.js";
 
 test("el volumen de feedbacks queda aislado del flujo operativo", () => {
   const source = {
@@ -162,25 +162,24 @@ test("genera feedback automatico para todos los perfiles autorizados de Entel", 
   assert.equal(shouldCreateAutomaticFeedback({clientId:"culqi_bcp"},{usuario:"admin.demo",rol:"admin"}),false);
 });
 
-test("bloquea el feedback automatico solo para la dotacion seleccionada", () => {
-  const staffing = [
-    {asesor:"ASESOR BLOQUEADO",usuarioAsignado:"asesor.bloqueado",clientId:"entel_b2b",feedbacksBlocked:true},
-    {asesor:"ASESOR HABILITADO",usuarioAsignado:"asesor.habilitado",clientId:"entel_b2b",feedbacksBlocked:false},
-    {asesor:"ASESOR CULQI",usuarioAsignado:"asesor.culqi",clientId:"culqi_bcp",feedbacksBlocked:true}
+test("bloquea el feedback automatico solo para el usuario seleccionado", () => {
+  const users = [
+    {usuario:"monitor.bloqueado",rol:"monitor",feedbacksBlocked:true},
+    {usuario:"monitor.habilitado",rol:"monitor",feedbacksBlocked:false}
   ];
-  const evaluator = {usuario:"monitor.demo",rol:"monitor"};
-  assert.equal(isAutomaticFeedbackBlockedForEvaluation({clientId:"entel_b2b",advisorUser:"asesor.bloqueado",asesorNombre:"ASESOR BLOQUEADO"},evaluator,staffing),true);
-  assert.equal(isAutomaticFeedbackBlockedForEvaluation({clientId:"entel_b2b",advisorUser:"asesor.habilitado",asesorNombre:"ASESOR HABILITADO"},evaluator,staffing),false);
-  assert.equal(isAutomaticFeedbackBlockedForEvaluation({clientId:"culqi_bcp",advisorUser:"asesor.culqi",asesorNombre:"ASESOR CULQI"},evaluator,staffing),false);
+  assert.equal(isAutomaticFeedbackBlockedForUser({usuario:"monitor.bloqueado",rol:"monitor"},users),true);
+  assert.equal(isAutomaticFeedbackBlockedForUser({usuario:"monitor.habilitado",rol:"monitor"},users),false);
+  assert.equal(isAutomaticFeedbackBlockedForUser({usuario:"monitor.inexistente",rol:"monitor"},users),false);
 });
 
-test("el bloqueo aplica a perfiles operativos pero no cambia el flujo del Administrador", () => {
-  const evaluation = {clientId:"entel_b2b",asesorId:"asesor.uno",asesorNombre:"ASESOR UNO"};
-  const staffing = [{asesor:"ASESOR UNO",usuarioAsignado:"asesor.uno",clientId:"entel_b2b",feedbacksBlocked:"true"}];
-  ["analista","monitor","supervisor","coordinador"].forEach(rol => {
-    assert.equal(isAutomaticFeedbackBlockedForEvaluation(evaluation,{usuario:`${rol}.demo`,rol},staffing),true,rol);
+test("el bloqueo sigue al usuario evaluador sin depender de su rol", () => {
+  const users = [
+    {usuario:"evaluador.demo",clientId:"entel_b2b",feedbacksBlocked:"true"},
+    {usuario:"evaluador.demo",clientId:"culqi_bcp",feedbacksBlocked:false}
+  ];
+  ["admin","analista","monitor","supervisor","coordinador"].forEach(rol => {
+    assert.equal(isAutomaticFeedbackBlockedForUser({usuario:"evaluador.demo",rol},users),true,rol);
   });
-  assert.equal(isAutomaticFeedbackBlockedForEvaluation(evaluation,{usuario:"admin.demo",rol:"admin"},staffing),false);
 });
 
 test("solo permite terminar el feedback despues de la aceptacion del asesor", () => {
