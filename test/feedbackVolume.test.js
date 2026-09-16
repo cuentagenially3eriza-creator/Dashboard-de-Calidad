@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyAutomaticFeedbackSla, buildAutomaticFeedbackRecord, buildFeedbackVolumeRecords, completeAutomaticFeedback, gasHandlers, getAutomaticFeedbackFlowStatus, shouldCreateAutomaticFeedback } from "../server/gasHandlers.js";
+import { applyAutomaticFeedbackSla, buildAutomaticFeedbackRecord, buildFeedbackVolumeRecords, completeAutomaticFeedback, gasHandlers, getAutomaticFeedbackFlowStatus, isAutomaticFeedbackBlockedForEvaluation, shouldCreateAutomaticFeedback } from "../server/gasHandlers.js";
 
 test("el volumen de feedbacks queda aislado del flujo operativo", () => {
   const source = {
@@ -160,6 +160,27 @@ test("genera feedback automatico para todos los perfiles autorizados de Entel", 
   });
   assert.equal(shouldCreateAutomaticFeedback(evaluation,{usuario:"formador.demo",rol:"formador"}),false);
   assert.equal(shouldCreateAutomaticFeedback({clientId:"culqi_bcp"},{usuario:"admin.demo",rol:"admin"}),false);
+});
+
+test("bloquea el feedback automatico solo para la dotacion seleccionada", () => {
+  const staffing = [
+    {asesor:"ASESOR BLOQUEADO",usuarioAsignado:"asesor.bloqueado",clientId:"entel_b2b",feedbacksBlocked:true},
+    {asesor:"ASESOR HABILITADO",usuarioAsignado:"asesor.habilitado",clientId:"entel_b2b",feedbacksBlocked:false},
+    {asesor:"ASESOR CULQI",usuarioAsignado:"asesor.culqi",clientId:"culqi_bcp",feedbacksBlocked:true}
+  ];
+  const evaluator = {usuario:"monitor.demo",rol:"monitor"};
+  assert.equal(isAutomaticFeedbackBlockedForEvaluation({clientId:"entel_b2b",advisorUser:"asesor.bloqueado",asesorNombre:"ASESOR BLOQUEADO"},evaluator,staffing),true);
+  assert.equal(isAutomaticFeedbackBlockedForEvaluation({clientId:"entel_b2b",advisorUser:"asesor.habilitado",asesorNombre:"ASESOR HABILITADO"},evaluator,staffing),false);
+  assert.equal(isAutomaticFeedbackBlockedForEvaluation({clientId:"culqi_bcp",advisorUser:"asesor.culqi",asesorNombre:"ASESOR CULQI"},evaluator,staffing),false);
+});
+
+test("el bloqueo aplica a perfiles operativos pero no cambia el flujo del Administrador", () => {
+  const evaluation = {clientId:"entel_b2b",asesorId:"asesor.uno",asesorNombre:"ASESOR UNO"};
+  const staffing = [{asesor:"ASESOR UNO",usuarioAsignado:"asesor.uno",clientId:"entel_b2b",feedbacksBlocked:"true"}];
+  ["analista","monitor","supervisor","coordinador"].forEach(rol => {
+    assert.equal(isAutomaticFeedbackBlockedForEvaluation(evaluation,{usuario:`${rol}.demo`,rol},staffing),true,rol);
+  });
+  assert.equal(isAutomaticFeedbackBlockedForEvaluation(evaluation,{usuario:"admin.demo",rol:"admin"},staffing),false);
 });
 
 test("solo permite terminar el feedback despues de la aceptacion del asesor", () => {
