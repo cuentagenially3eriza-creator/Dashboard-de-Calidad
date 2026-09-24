@@ -1589,6 +1589,25 @@ async function prepareAttachment(file, kind){
   return {name: file.name, mimeType: file.type || "application/octet-stream", base64, kind, size: file.size || 0};
 }
 
+async function uploadAttachmentBinary(file, kind, ownerId, ownerType){
+  if (!file) return null;
+  const query = new URLSearchParams({
+    ownerId:String(ownerId || ""),
+    ownerType:String(ownerType || "attachment"),
+    fileName:String(file.name || "adjunto"),
+    mimeType:String(file.type || "application/octet-stream"),
+    kind:String(kind || "attachment")
+  });
+  const response = await fetch(`/api/uploads/attachment?${query.toString()}`, {
+    method:"POST",
+    headers:{"content-type":"application/octet-stream"},
+    body:file
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false || !payload.file) throw new Error(payload.error || `No se pudo subir ${file.name}.`);
+  return payload.file;
+}
+
 function prepareEvaluationAttachmentMetadata(file, kind){
   if (!file) return null;
   return {
@@ -10059,12 +10078,13 @@ function SalesValidationModal({isOpen,onClose,onSave,record,currentUser,mode,rec
     if (requiresOmitted && !String(form.omittedContractInfo || "").trim()) { setErr("Debes detallar la informacion contractual omitida."); return; }
     try{
       setSaving(true);
-      const attachments = (await Promise.all(files.map(file => {
+      const validationId = record?.id || String(Date.now() + Math.floor(Math.random() * 1000));
+      const uploadedFiles = (await Promise.all(files.map(file => {
         const mime = String(file.type || "").toLowerCase();
         const kind = mime.startsWith("audio/") ? "sales_validation_audio" : mime.startsWith("image/") ? "sales_validation_image" : "sales_validation_document";
-        return prepareAttachment(file, kind);
+        return uploadAttachmentBinary(file, kind, validationId, "sales_validation");
       }))).filter(Boolean);
-      await onSave({...form,agentCode:visibleAgentCode,id:record?.id || "",attachments,currentUser});
+      await onSave({...form,agentCode:visibleAgentCode,id:validationId,uploadedFiles,currentUser});
       onClose();
     }catch(error){ setErr(error?.message || "No se pudo guardar la validación."); }
     finally{ setSaving(false); }

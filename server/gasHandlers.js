@@ -2883,6 +2883,11 @@ export const gasHandlers = {
 
     const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
     let record = normalized;
+    const uploadedFiles = Array.isArray(payload.uploadedFiles) ? payload.uploadedFiles.filter(Boolean) : [];
+    if (uploadedFiles.length) {
+      record = buildFileFieldsFromSavedFiles(record, mergeFilesByIdentity(record.files, uploadedFiles), {ok:true,savedFiles:uploadedFiles});
+      record.attachmentStatus = "completo";
+    }
     if (attachments.length) {
       const storageResult = await uploadAttachmentsWithFirebaseFallback(
         { id: record.id, salesValidationId: record.id, type: "sales_validation" },

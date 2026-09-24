@@ -9,7 +9,7 @@ import { listEvaluationFolderFiles, validateDriveConnection } from "./drive.js";
 import { readSharedRecord } from "./firebase.js";
 import { getRealtimeDatabaseFileBlob } from "./fileBlobs.js";
 import { gasHandlers } from "./gasHandlers.js";
-import { getFirebaseStorageFileStream, validateFirebaseStorageConnection } from "./storage.js";
+import { getFirebaseStorageFileStream, uploadBufferToFirebaseStorage, validateFirebaseStorageConnection } from "./storage.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,6 +18,30 @@ const publicDir = path.join(rootDir, "public");
 
 const app = express();
 app.use(cors());
+
+app.post("/api/uploads/attachment", express.raw({ type: "application/octet-stream", limit: "80mb" }), async (req, res, next) => {
+  try {
+    const ownerId = String(req.query.ownerId || "").trim();
+    const fileName = String(req.query.fileName || "").trim();
+    if (!ownerId || !fileName) {
+      res.status(400).json({ ok: false, error: "Faltan ownerId o fileName para subir el adjunto." });
+      return;
+    }
+    const file = await uploadBufferToFirebaseStorage(
+      { id: ownerId, type: String(req.query.ownerType || "attachment") },
+      {
+        name: fileName,
+        mimeType: String(req.query.mimeType || "application/octet-stream"),
+        kind: String(req.query.kind || "attachment")
+      },
+      req.body
+    );
+    res.json({ ok: true, file });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.use(express.json({ limit: "80mb" }));
 app.use(express.urlencoded({ extended: true, limit: "80mb" }));
 

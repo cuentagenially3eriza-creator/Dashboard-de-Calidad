@@ -143,6 +143,30 @@ export function getFirebaseStoragePlaybackUrl(file) {
   return storagePath ? `/api/storage/files/${encodeURIComponent(storagePath)}/content` : "";
 }
 
+export async function uploadBufferToFirebaseStorage(owner, file, buffer, index = 0) {
+  if (!Buffer.isBuffer(buffer) || !buffer.length) throw new Error("El archivo recibido esta vacio.");
+  const storage = await getStorageClient();
+  const bucketName = await getBucketName();
+  const storageFolder = getOwnerFolder(owner);
+  const mimeType = normalizeStorageMimeType(file);
+  const fileName = getAttachmentFileName(file, owner?.idEvaluacion || owner?.id || Date.now(), index);
+  const storagePath = `${storageFolder}/${fileName}`;
+  await storage.bucket(bucketName).file(storagePath).save(buffer, {
+    resumable: false,
+    contentType: mimeType,
+    metadata: {
+      contentType: mimeType,
+      cacheControl: "private, max-age=3600",
+      metadata: {
+        sourceApp: "calidad-b2b",
+        ownerId: String(owner?.idEvaluacion || owner?.id || ""),
+        advisorName: String(owner?.asesorNombre || owner?.assessor || "")
+      }
+    }
+  });
+  return makeStorageFileMetadata(storagePath, fileName, mimeType, file?.kind || file?.type || "evaluation_attachment", buffer.length);
+}
+
 export async function uploadAttachmentsToFirebaseStorage(evaluation, attachments = []) {
   const result = {
     ok: true,
@@ -156,9 +180,7 @@ export async function uploadAttachmentsToFirebaseStorage(evaluation, attachments
   if (!files.length) return result;
 
   try {
-    const storage = await getStorageClient();
     const bucketName = await getBucketName();
-    const bucket = storage.bucket(bucketName);
     result.storageBucket = bucketName;
     result.storageFolder = getOwnerFolder(evaluation);
 
@@ -173,23 +195,7 @@ export async function uploadAttachmentsToFirebaseStorage(evaluation, attachments
           throw error;
         }
         const buffer = Buffer.from(base64, "base64");
-        const mimeType = normalizeStorageMimeType(file);
-        const fileName = getAttachmentFileName(file, evaluation?.idEvaluacion || evaluation?.id || Date.now(), index);
-        const storagePath = `${result.storageFolder}/${fileName}`;
-        await bucket.file(storagePath).save(buffer, {
-          resumable: false,
-          contentType: mimeType,
-          metadata: {
-            contentType: mimeType,
-            cacheControl: "private, max-age=3600",
-            metadata: {
-              sourceApp: "calidad-b2b",
-              ownerId: String(evaluation?.idEvaluacion || evaluation?.id || ""),
-              advisorName: String(evaluation?.asesorNombre || evaluation?.assessor || "")
-            }
-          }
-        });
-        result.savedFiles.push(makeStorageFileMetadata(storagePath, fileName, mimeType, file.kind || file.type || "evaluation_attachment", buffer.length));
+        result.savedFiles.push(await uploadBufferToFirebaseStorage(evaluation, file, buffer, index));
       } catch (error) {
         result.ok = false;
         result.skippedAttachments.push({
