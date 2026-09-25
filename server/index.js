@@ -7,7 +7,7 @@ import { generateDashboardInsights } from "./ai.js";
 import { config } from "./config.js";
 import { listEvaluationFolderFiles, validateDriveConnection } from "./drive.js";
 import { readSharedRecord } from "./firebase.js";
-import { getRealtimeDatabaseFileBlob } from "./fileBlobs.js";
+import { getRealtimeDatabaseFileBlob, uploadBufferToRealtimeDatabase } from "./fileBlobs.js";
 import { gasHandlers } from "./gasHandlers.js";
 import { getFirebaseStorageFileStream, uploadBufferToFirebaseStorage, validateFirebaseStorageConnection } from "./storage.js";
 
@@ -27,16 +27,20 @@ app.post("/api/uploads/attachment", express.raw({ type: "application/octet-strea
       res.status(400).json({ ok: false, error: "Faltan ownerId o fileName para subir el adjunto." });
       return;
     }
-    const file = await uploadBufferToFirebaseStorage(
-      { id: ownerId, type: String(req.query.ownerType || "attachment") },
-      {
-        name: fileName,
-        mimeType: String(req.query.mimeType || "application/octet-stream"),
-        kind: String(req.query.kind || "attachment")
-      },
-      req.body
-    );
-    res.json({ ok: true, file });
+    const owner = { id: ownerId, type: String(req.query.ownerType || "attachment") };
+    const attachment = {
+      name: fileName,
+      mimeType: String(req.query.mimeType || "application/octet-stream"),
+      kind: String(req.query.kind || "attachment")
+    };
+    try {
+      const file = await uploadBufferToFirebaseStorage(owner, attachment, req.body);
+      res.json({ ok: true, file });
+    } catch (storageError) {
+      console.warn("[ATTACHMENT_STORAGE_FALLBACK]", storageError?.message || storageError);
+      const file = await uploadBufferToRealtimeDatabase(owner, attachment, req.body);
+      res.json({ ok: true, file, fallback: "firebase_realtime_database" });
+    }
   } catch (error) {
     next(error);
   }

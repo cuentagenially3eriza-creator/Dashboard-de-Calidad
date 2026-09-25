@@ -60,6 +60,23 @@ export function getFirebaseBlobPlaybackUrl(file) {
   return blobId ? `/api/firebase-files/${encodeURIComponent(blobId)}/content` : "";
 }
 
+export async function uploadBufferToRealtimeDatabase(owner, file, buffer, index = 0) {
+  if (!Buffer.isBuffer(buffer) || !buffer.length) throw new Error("El archivo recibido esta vacio.");
+  const blobId = makeBlobId(owner?.idEvaluacion || owner?.id, index);
+  await writeSharedRecord(getBlobKey(blobId), {
+    id: blobId,
+    ownerId: String(owner?.idEvaluacion || owner?.id || ""),
+    advisorName: String(owner?.asesorNombre || owner?.assessor || ""),
+    name: String(file?.name || "adjunto").trim(),
+    mimeType: normalizeBlobMimeType(file),
+    type: file?.kind || file?.type || "evaluation_attachment",
+    size: buffer.length,
+    base64: buffer.toString("base64"),
+    createdAt: new Date().toISOString()
+  });
+  return makeBlobMetadata(blobId, file, buffer.length);
+}
+
 export async function uploadAttachmentsToRealtimeDatabase(owner, attachments = []) {
   const result = {
     ok: true,
@@ -81,20 +98,8 @@ export async function uploadAttachmentsToRealtimeDatabase(owner, attachments = [
         error.reason = "sin_base64_para_guardar";
         throw error;
       }
-      const bufferSize = Buffer.byteLength(base64, "base64");
-      const blobId = makeBlobId(owner?.idEvaluacion || owner?.id, index);
-      await writeSharedRecord(getBlobKey(blobId), {
-        id: blobId,
-        ownerId: String(owner?.idEvaluacion || owner?.id || ""),
-        advisorName: String(owner?.asesorNombre || owner?.assessor || ""),
-        name: String(file.name || "adjunto").trim(),
-        mimeType: normalizeBlobMimeType(file),
-        type: file.kind || file.type || "evaluation_attachment",
-        size: Number(file.size || bufferSize || 0) || 0,
-        base64,
-        createdAt: new Date().toISOString()
-      });
-      result.savedFiles.push(makeBlobMetadata(blobId, file, bufferSize));
+      const buffer = Buffer.from(base64, "base64");
+      result.savedFiles.push(await uploadBufferToRealtimeDatabase(owner, file, buffer, index));
     } catch (error) {
       result.ok = false;
       result.skippedAttachments.push({
