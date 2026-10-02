@@ -1,6 +1,8 @@
 import { config, requireConfig } from "./config.js";
 
 const FIREBASE_MAX_STRING_BYTES = 10 * 1024 * 1024;
+const FIREBASE_QUOTA_COOLDOWN_MS = 5 * 60 * 1000;
+let firebaseQuotaBlockedUntil = 0;
 
 function firebaseUrl(path) {
   requireConfig("FIREBASE_URL", config.firebaseUrl);
@@ -11,6 +13,12 @@ function firebaseUrl(path) {
 }
 
 async function fetchJson(url, options = {}) {
+  if (firebaseQuotaBlockedUntil > Date.now()) {
+    const error = new Error("Firebase Realtime Database excedio su cuota y esta temporalmente deshabilitada.");
+    error.status = 503;
+    error.code = "FIREBASE_QUOTA_EXCEEDED";
+    throw error;
+  }
   const response = await fetch(url, {
     ...options,
     headers: {
@@ -22,7 +30,14 @@ async function fetchJson(url, options = {}) {
   const data = text ? JSON.parse(text) : null;
   if (!response.ok) {
     const error = new Error(`Firebase HTTP ${response.status}: ${text || response.statusText}`);
-    error.status = response.status;
+    const quotaExceeded = response.status === 402 && /exceeded its quota/i.test(text);
+    if (quotaExceeded) {
+      firebaseQuotaBlockedUntil = Date.now() + FIREBASE_QUOTA_COOLDOWN_MS;
+      error.status = 503;
+      error.code = "FIREBASE_QUOTA_EXCEEDED";
+    } else {
+      error.status = response.status;
+    }
     throw error;
   }
   return data;

@@ -5,9 +5,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { generateDashboardInsights } from "./ai.js";
 import { config } from "./config.js";
-import { listEvaluationFolderFiles, validateDriveConnection } from "./drive.js";
+import { listEvaluationFolderFiles, uploadEvaluationAttachmentsToDrive, validateDriveConnection } from "./drive.js";
 import { readSharedRecord } from "./firebase.js";
-import { getRealtimeDatabaseFileBlob, uploadBufferToRealtimeDatabase } from "./fileBlobs.js";
+import { getRealtimeDatabaseFileBlob } from "./fileBlobs.js";
 import { gasHandlers } from "./gasHandlers.js";
 import { getFirebaseStorageFileStream, uploadBufferToFirebaseStorage, validateFirebaseStorageConnection } from "./storage.js";
 
@@ -17,6 +17,7 @@ const rootDir = path.resolve(__dirname, "..");
 const publicDir = path.join(rootDir, "public");
 
 const app = express();
+let lastFirebaseQuotaLogAt = 0;
 app.use(cors());
 
 app.post("/api/uploads/attachment", express.raw({ type: "application/octet-stream", limit: "80mb" }), async (req, res, next) => {
@@ -38,8 +39,18 @@ app.post("/api/uploads/attachment", express.raw({ type: "application/octet-strea
       res.json({ ok: true, file });
     } catch (storageError) {
       console.warn("[ATTACHMENT_STORAGE_FALLBACK]", storageError?.message || storageError);
-      const file = await uploadBufferToRealtimeDatabase(owner, attachment, req.body);
-      res.json({ ok: true, file, fallback: "firebase_realtime_database" });
+      const driveResult = await uploadEvaluationAttachmentsToDrive(owner, [{
+        ...attachment,
+        size: req.body.length,
+        base64: req.body.toString("base64")
+      }]);
+      const file = driveResult.savedFiles?.[0];
+      if (!file) {
+        const error = new Error(driveResult.driveWarning || "No existe un almacenamiento de archivos disponible.");
+        error.status = 503;
+        throw error;
+      }
+      res.json({ ok: true, file, fallback: "google_drive" });
     }
   } catch (error) {
     next(error);
@@ -213,7 +224,11 @@ app.get("*", (_req, res) => {
 });
 
 app.use((error, _req, res, _next) => {
-  console.error("[LOCAL_API_ERROR]", error);
+  const quotaError = error?.code === "FIREBASE_QUOTA_EXCEEDED";
+  if (!quotaError || Date.now() - lastFirebaseQuotaLogAt >= 60 * 1000) {
+    console.error("[LOCAL_API_ERROR]", error);
+    if (quotaError) lastFirebaseQuotaLogAt = Date.now();
+  }
   res.status(error.status || 500).json({
     ok: false,
     error: error.message || "Error inesperado en API local."

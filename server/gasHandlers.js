@@ -9,13 +9,13 @@ import {
 } from "./firebase.js";
 import {
   getFirebaseBlobPlaybackUrl,
-  isFirebaseBlobFile,
-  uploadAttachmentsToRealtimeDatabase
+  isFirebaseBlobFile
 } from "./fileBlobs.js";
 import {
   enrichEvaluationWithDirectDriveFolder,
   isEvaluationAudioFile,
   isEvaluationImageFile,
+  uploadEvaluationAttachmentsToDrive,
   validateDriveConnection
 } from "./drive.js";
 import {
@@ -91,9 +91,14 @@ async function readCachedSharedJson(key, fallback = [], ttlMs = CACHE_TTL_MS) {
   const now = Date.now();
   const cached = firebaseReadCache.get(key);
   if (cached && cached.expiresAt > now) return cached.value;
-  const value = await readSharedJson(key, fallback);
-  firebaseReadCache.set(key, { value, expiresAt: now + ttlMs });
-  return value;
+  try {
+    const value = await readSharedJson(key, fallback);
+    firebaseReadCache.set(key, { value, expiresAt: now + ttlMs });
+    return value;
+  } catch (error) {
+    if (cached && error?.code === "FIREBASE_QUOTA_EXCEEDED") return cached.value;
+    throw error;
+  }
 }
 
 function invalidateFirebaseCache(...keys) {
@@ -1055,17 +1060,17 @@ async function uploadAttachmentsWithFirebaseFallback(owner, attachments) {
   const fallbackAttachments = (Array.isArray(attachments) ? attachments : []).filter(file =>
     skippedKeys.has(getSkippedAttachmentKey(file))
   );
-  const blobResult = await uploadAttachmentsToRealtimeDatabase(owner, fallbackAttachments);
-  const storageWarning = blobResult.ok
-    ? `${storageResult.storageWarning || "Firebase Storage no disponible."} Se guardaron los adjuntos en Firebase Realtime Database.`
-    : `${storageResult.storageWarning || "Firebase Storage no disponible."} ${blobResult.storageWarning || ""}`.trim();
+  const driveResult = await uploadEvaluationAttachmentsToDrive(owner, fallbackAttachments);
+  const storageWarning = driveResult.ok
+    ? `${storageResult.storageWarning || "Firebase Storage no disponible."} Se guardaron los adjuntos en Google Drive.`
+    : `${storageResult.storageWarning || "Firebase Storage no disponible."} ${driveResult.driveWarning || ""}`.trim();
   return {
     ...storageResult,
-    ok: blobResult.ok,
-    savedFiles: [...(storageResult.savedFiles || []), ...(blobResult.savedFiles || [])],
-    skippedAttachments: blobResult.skippedAttachments || [],
+    ok: driveResult.ok,
+    savedFiles: [...(storageResult.savedFiles || []), ...(driveResult.savedFiles || [])],
+    skippedAttachments: driveResult.skippedAttachments || [],
     storageWarning,
-    fallbackStorageProvider: "firebase_realtime_database"
+    fallbackStorageProvider: driveResult.ok ? "google_drive" : ""
   };
 }
 

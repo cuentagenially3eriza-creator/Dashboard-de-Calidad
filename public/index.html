@@ -620,7 +620,26 @@ async function saveUsers(users){
   }
 }
 
+const USERS_CACHE_KEY = "calidad_b2b_users_cache_v1";
+
+function readUsersCache(){
+  try{
+    const parsed = JSON.parse(localStorage.getItem(USERS_CACHE_KEY) || "[]");
+    return Array.isArray(parsed) ? normalizeUsersList(parsed) : [];
+  }catch(_error){
+    return [];
+  }
+}
+
+function writeUsersCache(users){
+  try{
+    const normalized = normalizeUsersList(users);
+    if (normalized.length) localStorage.setItem(USERS_CACHE_KEY, JSON.stringify(normalized));
+  }catch(_error){}
+}
+
 async function loadUsers(options = {}){
+  const cachedUsers = readUsersCache();
   try{
     let data = null;
     if (options.preferBackend || typeof google === "undefined") {
@@ -630,7 +649,7 @@ async function loadUsers(options = {}){
         console.warn("No se pudo cargar usuarios con backend listUsers, se usara getData:", backendErr);
       }
     }
-    if (!Array.isArray(data) || !data.length) {
+    if ((!Array.isArray(data) || !data.length) && typeof google !== "undefined") {
       try {
         data = await runGoogleScript("listUsers");
       } catch (serverErr) {
@@ -642,13 +661,15 @@ async function loadUsers(options = {}){
       data = await directFirebaseReadShared("users_v1");
     }
     if (data && Array.isArray(data) && data.length > 0) {
-      return normalizeUsersList(data);
+      const normalized = normalizeUsersList(data);
+      writeUsersCache(normalized);
+      return normalized;
     }
     console.warn("No se recibieron usuarios persistidos.");
-    return canUseEmergencyUser() ? getEmergencyUsers() : [];
+    return cachedUsers.length ? cachedUsers : (canUseEmergencyUser() ? getEmergencyUsers() : []);
   }catch(err){
     console.error("Error cargando usuarios:", err);
-    return canUseEmergencyUser() ? getEmergencyUsers() : [];
+    return cachedUsers.length ? cachedUsers : (canUseEmergencyUser() ? getEmergencyUsers() : []);
   }
 }
 
